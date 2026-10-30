@@ -1,0 +1,65 @@
+{
+  "analysis": "complete",
+  "assumptions": [],
+  "base": "directory:sha256:0f74f59804637bf5b8e855153fe7e0b703189d1d7a1699c0b1be09596f22c93f",
+  "defaultPermissions": null,
+  "diagnostics": [],
+  "examinedFiles": [
+    ".github/workflows/release.yml"
+  ],
+  "findings": [
+    {
+      "after": "pull_request_target",
+      "before": null,
+      "file": ".github/workflows/release.yml",
+      "job": null,
+      "message": "Review-sensitive trigger pull_request_target introduced. Review who can invoke it and token/secret access.",
+      "rule": "WF003"
+    },
+    {
+      "after": {
+        "id-token": "write"
+      },
+      "before": {
+        "id-token": "none"
+      },
+      "file": ".github/workflows/release.yml",
+      "job": "publish",
+      "message": "Job publish is newly configured to request an OIDC identity token. Runtime access is not verified.",
+      "rule": "WF001"
+    },
+    {
+      "after": {
+        "packages": "write"
+      },
+      "before": {
+        "packages": "none"
+      },
+      "file": ".github/workflows/release.yml",
+      "job": "publish",
+      "message": "Job publish is newly configured to use packages: write. Runtime access is not verified.",
+      "rule": "WF001"
+    },
+    {
+      "after": "PUBLISH_TOKEN",
+      "before": null,
+      "file": ".github/workflows/release.yml",
+      "job": "publish",
+      "message": "Job publish adds a reference or forwarding path to PUBLISH_TOKEN. Availability and actual access are not verified.",
+      "rule": "WF004"
+    }
+  ],
+  "head": "directory:sha256:c6f3b69a45ca538e6bd23a33274aafa8d39d1848c251e566c6ac49cf50a36386",
+  "inheritedComparisons": [],
+  "limitations": [
+    "Compares supported configured capabilities, not actual runtime access or PR safety.",
+    "Does not inspect executed scripts, remote actions/workflows, cloud trust, or environment guards.",
+    "Trigger filter changes and secret delivery to individual steps are outside coverage.",
+    "Trigger review covers selected event names only: discussion, discussion_comment, issue_comment, issues, pull_request_target, workflow_run.",
+    "Runner ownership/inventory and environment secret/protection settings are not observed. Standard runner labels follow a documented convention list.",
+    "Only direct static matrix fields resolve runner/environment expressions; unchanged unresolved selections compare symbolically under fixed external context."
+  ],
+  "renames": [],
+  "review": "suggested",
+  "schemaVersion": "0.1"
+}

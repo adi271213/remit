@@ -1,0 +1,199 @@
+[
+  {
+    "case": "alias-neutral",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo updated\n  b: *job\n",
+    "analysis": "complete",
+    "review": "none",
+    "rules": []
+  },
+  {
+    "case": "alias-permissions",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "head": "on: workflow_dispatch\npermissions: &token {id-token: write}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "analysis": "complete",
+    "review": "suggested",
+    "rules": [
+      "WF001",
+      "WF001"
+    ]
+  },
+  {
+    "case": "alias-token",
+    "base": "on: workflow_dispatch\npermissions: &token {}\njobs:\n  a: &job\n    permissions: *token\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "head": "on: workflow_dispatch\npermissions: &token {id-token: write}\njobs:\n  a: &job\n    permissions: *token\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "analysis": "complete",
+    "review": "suggested",
+    "rules": [
+      "WF001",
+      "WF001"
+    ]
+  },
+  {
+    "case": "alias-secret",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ secrets.DEPLOY_KEY }}\n  b: *job\n",
+    "analysis": "complete",
+    "review": "suggested",
+    "rules": [
+      "WF004",
+      "WF004"
+    ]
+  },
+  {
+    "case": "alias-runner",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: [self-hosted, prod]\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "analysis": "complete",
+    "review": "suggested",
+    "rules": [
+      "WF005",
+      "WF005"
+    ]
+  },
+  {
+    "case": "alias-environment",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    environment: production\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "analysis": "complete",
+    "review": "suggested",
+    "rules": [
+      "WF007",
+      "WF007"
+    ]
+  },
+  {
+    "case": "alias-matrix",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ${{ matrix.os }}\n    strategy:\n      matrix:\n        os: &os [ubuntu-latest]\n        python: [\"3.11\", \"3.12\"]\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ${{ matrix.os }}\n    strategy:\n      matrix:\n        os: &os [ubuntu-latest, self-hosted]\n        python: [\"3.11\", \"3.12\"]\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "analysis": "complete",
+    "review": "suggested",
+    "rules": [
+      "WF005",
+      "WF005"
+    ]
+  },
+  {
+    "case": "alias-dynamic-secret",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ secrets.DEPLOY_KEY }} ${{ secrets[inputs.which] }}\n  b: *job\n",
+    "analysis": "incomplete",
+    "review": "suggested",
+    "rules": [
+      "WF004",
+      "WF004"
+    ]
+  },
+  {
+    "case": "alias-unknown-base-secret",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ secrets[inputs.which] }}\n  b: *job\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ secrets.DEPLOY_KEY }}\n  b: *job\n",
+    "analysis": "incomplete",
+    "review": "unknown",
+    "rules": []
+  },
+  {
+    "case": "alias-dynamic-runner",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ${{ vars.CI_RUNNER }}\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "analysis": "incomplete",
+    "review": "suggested",
+    "rules": [
+      "WF005",
+      "WF005"
+    ]
+  },
+  {
+    "case": "alias-dynamic-environment",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    environment: ${{ vars.ENVIRONMENT }}\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "analysis": "incomplete",
+    "review": "suggested",
+    "rules": [
+      "WF007",
+      "WF007"
+    ]
+  },
+  {
+    "case": "alias-merge-key",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: {<<: *job}\n",
+    "analysis": "error",
+    "review": "unknown",
+    "rules": []
+  },
+  {
+    "case": "alias-undefined",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *missing\n",
+    "analysis": "error",
+    "review": "unknown",
+    "rules": []
+  },
+  {
+    "case": "alias-duplicate-anchor",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: &job {runs-on: ubuntu-latest, steps: [{run: echo fixture}]}\n",
+    "analysis": "error",
+    "review": "unknown",
+    "rules": []
+  },
+  {
+    "case": "alias-cycle",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "head": "on: workflow_dispatch\npermissions: {}\nextra: &cycle [*cycle]\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "analysis": "error",
+    "review": "unknown",
+    "rules": []
+  },
+  {
+    "case": "alias-hidden-bomb",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "head": "l0: &l0 [z,z,z,z,z,z,z,z,z,z]\nl1: &l1 [*l0,*l0,*l0,*l0,*l0,*l0,*l0,*l0,*l0,*l0]\nl2: &l2 [*l1,*l1,*l1,*l1,*l1,*l1,*l1,*l1,*l1,*l1]\nl3: &l3 [*l2,*l2,*l2,*l2,*l2,*l2,*l2,*l2,*l2,*l2]\nl4: &l4 [*l3,*l3,*l3,*l3,*l3,*l3,*l3,*l3,*l3,*l3]\nl5: &l5 [*l4,*l4,*l4,*l4,*l4,*l4,*l4,*l4,*l4,*l4]\nl6: &l6 [*l5,*l5,*l5,*l5,*l5,*l5,*l5,*l5,*l5,*l5]\non: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo updated\n  b: *job\n",
+    "analysis": "error",
+    "review": "unknown",
+    "rules": []
+  },
+  {
+    "case": "alias-matrix-bomb",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "head": "l0: &l0 [z,z,z,z,z,z,z,z,z,z]\nl1: &l1 [*l0,*l0,*l0,*l0,*l0,*l0,*l0,*l0,*l0,*l0]\nl2: &l2 [*l1,*l1,*l1,*l1,*l1,*l1,*l1,*l1,*l1,*l1]\nl3: &l3 [*l2,*l2,*l2,*l2,*l2,*l2,*l2,*l2,*l2,*l2]\nl4: &l4 [*l3,*l3,*l3,*l3,*l3,*l3,*l3,*l3,*l3,*l3]\nl5: &l5 [*l4,*l4,*l4,*l4,*l4,*l4,*l4,*l4,*l4,*l4]\nl6: &l6 [*l5,*l5,*l5,*l5,*l5,*l5,*l5,*l5,*l5,*l5]\non: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ${{ matrix.os }}\n    strategy: {matrix: {os: [ubuntu-latest], extra: [*l6]}}\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "analysis": "error",
+    "review": "unknown",
+    "rules": []
+  },
+  {
+    "case": "alias-scalar-bomb",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "head": "scalar: &scalar \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"\nuses: [*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar]\non: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo updated\n  b: *job\n",
+    "analysis": "error",
+    "review": "unknown",
+    "rules": []
+  },
+  {
+    "case": "alias-count-limit",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "head": "scalar: &scalar x\nuses: [*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar,*scalar]\non: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo updated\n  b: *job\n",
+    "analysis": "error",
+    "review": "unknown",
+    "rules": []
+  },
+  {
+    "case": "alias-syntax-error",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  a: &job\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  b: *job\n",
+    "head": "on: workflow_dispatch\njobs: [unclosed\n",
+    "analysis": "error",
+    "review": "unknown",
+    "rules": []
+  },
+  {
+    "case": "alias-mapping-key",
+    "base": "on: workflow_dispatch\nkey: &key contents\npermissions: {*key: read}\njobs:\n  a: {runs-on: ubuntu-latest, steps: [{run: echo fixture}]}\n",
+    "head": "on: workflow_dispatch\nkey: &key contents\npermissions: {*key: write}\njobs:\n  a: {runs-on: ubuntu-latest, steps: [{run: echo fixture}]}\n",
+    "analysis": "complete",
+    "review": "suggested",
+    "rules": [
+      "WF001"
+    ]
+  }
+]

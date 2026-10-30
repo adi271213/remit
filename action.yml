@@ -1,0 +1,60 @@
+name: Workflow Privilege Check
+description: Report supported GitHub Actions privilege changes between exact commits.
+inputs:
+  mode:
+    description: 'require-complete exits 2 on incomplete/error; advisory reports these outcomes without failing. Findings alone never fail the step.'
+    default: require-complete
+  base:
+    description: Base commit SHA; defaults to the PR event base SHA.
+    required: false
+  head:
+    description: Head commit SHA; defaults to the PR event head SHA.
+    required: false
+  repository-path:
+    description: Local checkout containing both commit objects.
+    default: .
+  default-permissions:
+    description: Optional trusted JSON map of inherited token defaults.
+    required: false
+outputs:
+  analysis-status:
+    description: complete, incomplete, or error.
+    value: ${{ steps.report.outputs.analysis-status }}
+  review-status:
+    description: suggested if findings exist, none only after complete analysis, otherwise unknown.
+    value: ${{ steps.report.outputs.review-status }}
+  finding-count:
+    description: Number of supported configured-capability findings.
+    value: ${{ steps.report.outputs.finding-count }}
+  analysis-exit-code:
+    description: '0 for complete analysis; 2 for incomplete/error, regardless of Action mode.'
+    value: ${{ steps.report.outputs.analysis-exit-code }}
+  report-path:
+    description: Absolute JSON report path in runner temp; available to later steps in this job.
+    value: ${{ steps.report.outputs.report-path }}
+  summary-path:
+    description: Absolute Markdown report path in runner temp; available to later steps in this job.
+    value: ${{ steps.report.outputs.summary-path }}
+  base-sha:
+    description: Resolved base commit SHA; empty if inputs could not be resolved.
+    value: ${{ steps.report.outputs.base-sha }}
+  head-sha:
+    description: Resolved head commit SHA; empty if inputs could not be resolved.
+    value: ${{ steps.report.outputs.head-sha }}
+branding:
+  icon: shield
+  color: purple
+
+runs:
+  using: composite
+  steps:
+    - name: Report workflow privilege changes
+      id: report
+      shell: bash
+      env:
+        PRIVILEGE_MODE: ${{ inputs.mode }}
+        PRIVILEGE_BASE: ${{ inputs.base }}
+        PRIVILEGE_HEAD: ${{ inputs.head }}
+        PRIVILEGE_REPOSITORY: ${{ inputs.repository-path }}
+        PRIVILEGE_DEFAULTS: ${{ inputs.default-permissions }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/run-action.sh"

@@ -1,0 +1,150 @@
+{
+  "grants": {
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n",
+    "head": "on: [workflow_dispatch, pull_request_target]\npermissions: {contents: write, id-token: write}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ secrets.NEW_TOKEN }}\n",
+    "analysis": "complete",
+    "review": "suggested",
+    "rules": [
+      "WF003",
+      "WF001",
+      "WF001",
+      "WF004"
+    ],
+    "secrets": [
+      "NEW_TOKEN"
+    ]
+  },
+  "incomplete": {
+    "base": "on: workflow_dispatch\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n",
+    "head": "on: workflow_dispatch\npermissions: {contents: write}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n",
+    "analysis": "incomplete",
+    "review": "unknown",
+    "rules": []
+  },
+  "error": {
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n",
+    "head": "on: workflow_dispatch\njobs: [unclosed\n",
+    "analysis": "error",
+    "review": "unknown",
+    "rules": []
+  },
+  "missing": {
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n",
+    "analysis": "error",
+    "review": "unknown",
+    "rules": [],
+    "mutation": "missing"
+  },
+  "secret-partial": {
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ secrets.NEW_TOKEN }} ${{ secrets[inputs.which] }}\n",
+    "analysis": "incomplete",
+    "review": "suggested",
+    "rules": [
+      "WF004"
+    ],
+    "secrets": [
+      "NEW_TOKEN"
+    ]
+  },
+  "secret-base-unknown": {
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ secrets[inputs.which] }}\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ secrets.NEW_TOKEN }}\n",
+    "analysis": "incomplete",
+    "review": "unknown",
+    "rules": []
+  },
+  "replace-commit": {
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n",
+    "head": "on: workflow_dispatch\npermissions: {contents: write}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n",
+    "analysis": "complete",
+    "review": "suggested",
+    "rules": [
+      "WF001"
+    ],
+    "mutation": "replace-commit"
+  },
+  "replace-blob": {
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n",
+    "head": "on: workflow_dispatch\npermissions: {contents: write}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n",
+    "analysis": "complete",
+    "review": "suggested",
+    "rules": [
+      "WF001"
+    ],
+    "mutation": "replace-blob"
+  },
+  "redirected": {
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n",
+    "head": "on: workflow_dispatch\npermissions: {contents: write}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n",
+    "analysis": "complete",
+    "review": "suggested",
+    "rules": [
+      "WF001"
+    ]
+  },
+  "alias-supported": {
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  replica:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  test: &test\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  replica: *test\n",
+    "analysis": "complete",
+    "review": "none",
+    "rules": []
+  },
+  "association": {
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  deploy:\n    strategy:\n      matrix:\n        include:\n          - runner: ubuntu-latest\n            target: production\n          - runner: self-hosted\n            target: staging\n    runs-on: ${{ matrix.runner }}\n    environment: ${{ matrix.target }}\n    steps:\n      - run: echo synthetic fixture\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  deploy:\n    strategy:\n      matrix:\n        include:\n          - runner: ubuntu-latest\n            target: staging\n          - runner: self-hosted\n            target: production\n    runs-on: ${{ matrix.runner }}\n    environment: ${{ matrix.target }}\n    steps:\n      - run: echo synthetic fixture\n",
+    "analysis": "complete",
+    "review": "suggested",
+    "rules": [
+      "WF008"
+    ]
+  },
+  "association-unresolved": {
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  deploy:\n    strategy:\n      matrix:\n        include:\n          - runner: ubuntu-latest\n            target: production\n          - runner: self-hosted\n            target: staging\n    runs-on: ${{ matrix.runner }}\n    environment: ${{ matrix.target }}\n    steps:\n      - run: echo synthetic fixture\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  deploy:\n    strategy:\n      matrix:\n        include:\n          - runner: {name: ubuntu-latest}\n            target: production\n          - runner: self-hosted\n            target: staging\n    runs-on: ${{ matrix.runner }}\n    environment: ${{ matrix.target }}\n    steps:\n      - run: echo synthetic fixture\n",
+    "analysis": "incomplete",
+    "review": "unknown",
+    "rules": []
+  },
+  "hyphen-neutral": {
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ inputs.use-secrets }}\n",
+    "analysis": "complete",
+    "review": "none",
+    "rules": []
+  },
+  "hyphen-secret": {
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ inputs.use-secrets }}\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ inputs.use-secrets }} ${{ secrets.DEPLOY_KEY }}\n",
+    "analysis": "complete",
+    "review": "suggested",
+    "rules": [
+      "WF004"
+    ],
+    "secrets": [
+      "DEPLOY_KEY"
+    ]
+  },
+  "hyphen-association": {
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  deploy:\n    strategy:\n      matrix:\n        include:\n          - runner-name: ubuntu-latest\n            environment-name: production\n          - runner-name: self-hosted\n            environment-name: staging\n    runs-on: ${{ matrix.runner-name }}\n    environment: ${{ matrix.environment-name }}\n    steps:\n      - run: echo synthetic fixture\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  deploy:\n    strategy:\n      matrix:\n        include:\n          - runner-name: ubuntu-latest\n            environment-name: staging\n          - runner-name: self-hosted\n            environment-name: production\n    runs-on: ${{ matrix.runner-name }}\n    environment: ${{ matrix.environment-name }}\n    steps:\n      - run: echo synthetic fixture\n",
+    "analysis": "complete",
+    "review": "suggested",
+    "rules": [
+      "WF008"
+    ]
+  },
+  "hyphen-secret-prefix": {
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ secrets.DEPLOY-KEY }}\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ secrets.DEPLOY-KEY }} ${{ secrets.DEPLOY }}\n",
+    "analysis": "complete",
+    "review": "suggested",
+    "rules": [
+      "WF004"
+    ],
+    "secrets": [
+      "DEPLOY"
+    ]
+  }
+}

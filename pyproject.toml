@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "workflow-privilege-check"
+version = "0.0.4"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+description = "Explain supported GitHub Actions privilege changes between two snapshots."
+requires-python = ">=3.11"
+dependencies = ["PyYAML==6.0.3"]
+
+[project.urls]
+Source = "https://github.com/adi271213/workflow-privilege-check"
+Issues = "https://github.com/adi271213/workflow-privilege-check/issues"
+Documentation = "https://github.com/adi271213/workflow-privilege-check/blob/main/SETUP.md"
+
+[project.scripts]
+workflow-privilege-check = "privilege_check.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

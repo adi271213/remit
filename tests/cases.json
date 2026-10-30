@@ -1,0 +1,394 @@
+[
+  {
+    "id": "P01",
+    "title": "contents read to write",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: write\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "expected": "grant",
+    "rule": "WF001",
+    "group": "core"
+  },
+  {
+    "id": "P02",
+    "title": "OIDC token request enabled",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\n  id-token: write\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "expected": "grant",
+    "rule": "WF001",
+    "group": "core"
+  },
+  {
+    "id": "P03",
+    "title": "Remove test-job restriction while publish already has write",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: write\njobs:\n  publish:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n  test:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n    permissions: {}\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: write\njobs:\n  publish:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n  test:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "expected": "grant",
+    "rule": "WF001",
+    "group": "core"
+  },
+  {
+    "id": "P04",
+    "title": "Empty permissions to write-all",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions: {}\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions: write-all\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "expected": "grant",
+    "rule": "WF001",
+    "group": "core"
+  },
+  {
+    "id": "P05",
+    "title": "Introduce unknown inherited defaults",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "expected": "incomplete",
+    "rule": null,
+    "group": "core"
+  },
+  {
+    "id": "P06",
+    "title": "Reduce write to read",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: write\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "expected": "neutral",
+    "rule": null,
+    "group": "core"
+  },
+  {
+    "id": "P07",
+    "title": "Equivalent permissions at workflow and job scope",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n    permissions:\n      contents: read\n"
+    },
+    "expected": "neutral",
+    "rule": null,
+    "group": "core"
+  },
+  {
+    "id": "P08",
+    "title": "Add write to a second existing job",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions: {}\njobs:\n  publish:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n    permissions:\n      contents: write\n  test:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n    permissions: {}\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions: {}\njobs:\n  publish:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n    permissions:\n      contents: write\n  test:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n    permissions:\n      contents: write\n"
+    },
+    "expected": "grant",
+    "rule": "WF001",
+    "group": "core"
+  },
+  {
+    "id": "P09",
+    "title": "Unknown inherited defaults persist during workflow edit",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n    name: Renamed\n"
+    },
+    "expected": "neutral",
+    "rule": null,
+    "group": "core"
+  },
+  {
+    "id": "T01",
+    "title": "Add pull_request_target",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on':\n- push\n- pull_request_target\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "expected": "grant",
+    "rule": "WF003",
+    "group": "core"
+  },
+  {
+    "id": "T02",
+    "title": "Add workflow_run",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on':\n  push: {}\n  workflow_run:\n    workflows:\n    - CI\n    types:\n    - completed\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "expected": "grant",
+    "rule": "WF003",
+    "group": "core"
+  },
+  {
+    "id": "T03",
+    "title": "Equivalent trigger list and mapping",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on':\n  push: {}\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "expected": "neutral",
+    "rule": null,
+    "group": "core"
+  },
+  {
+    "id": "T04",
+    "title": "Remove privileged trigger",
+    "base": {
+      ".github/workflows/ci.yml": "'on':\n- push\n- pull_request_target\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "expected": "neutral",
+    "rule": null,
+    "group": "core"
+  },
+  {
+    "id": "S01",
+    "title": "Add explicit job secret reference",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n    env:\n      TOKEN: ${{ secrets.PUBLISH_TOKEN }}\n"
+    },
+    "expected": "grant",
+    "rule": "WF004",
+    "group": "core"
+  },
+  {
+    "id": "S02",
+    "title": "Explicit reusable-workflow secrets to inherit",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions: {}\njobs:\n  publish:\n    uses: example/trusted/.github/workflows/publish.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n    secrets:\n      TOKEN: ${{ secrets.TOKEN }}\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions: {}\njobs:\n  publish:\n    uses: example/trusted/.github/workflows/publish.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n    secrets: inherit\n"
+    },
+    "expected": "grant",
+    "rule": "WF004",
+    "group": "core"
+  },
+  {
+    "id": "S03",
+    "title": "Equivalent dot and bracket reference",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions: {}\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n    env:\n      TOKEN: ${{ secrets.TOKEN }}\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions: {}\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n    env:\n      TOKEN: ${{ secrets['TOKEN'] }}\n"
+    },
+    "expected": "neutral",
+    "rule": null,
+    "group": "core"
+  },
+  {
+    "id": "S04",
+    "title": "Dynamically selected secret",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions: {}\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n    env:\n      TOKEN: ${{ secrets[matrix.secret_name] }}\n    strategy:\n      matrix:\n        secret_name:\n        - PUBLISH_TOKEN\n"
+    },
+    "expected": "incomplete",
+    "rule": null,
+    "group": "core"
+  },
+  {
+    "id": "S05",
+    "title": "Add secret at workflow env scope",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions: {}\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions: {}\nenv:\n  TOKEN: ${{ secrets.PUBLISH_TOKEN }}\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "expected": "grant",
+    "rule": "WF004",
+    "group": "core"
+  },
+  {
+    "id": "S06",
+    "title": "Expose existing secret to another job",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions: {}\njobs:\n  publish:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n    env:\n      TOKEN: ${{ secrets.TOKEN }}\n  test:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions: {}\njobs:\n  publish:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n    env:\n      TOKEN: ${{ secrets.TOKEN }}\n  test:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n    env:\n      TOKEN: ${{ secrets.TOKEN }}\n"
+    },
+    "expected": "grant",
+    "rule": "WF004",
+    "group": "core"
+  },
+  {
+    "id": "S07",
+    "title": "Secret identifiers differ only in case",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions: {}\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n    env:\n      TOKEN: ${{ secrets.TOKEN }}\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions: {}\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n    env:\n      TOKEN: ${{ secrets.token }}\n"
+    },
+    "expected": "neutral",
+    "rule": null,
+    "group": "core"
+  },
+  {
+    "id": "N01",
+    "title": "Comments and whitespace only",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "# comment\n'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n\n"
+    },
+    "expected": "neutral",
+    "rule": null,
+    "group": "core"
+  },
+  {
+    "id": "N02",
+    "title": "Exact privileged-workflow rename in directory mode",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: write\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: write\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "expected": "neutral",
+    "rule": null,
+    "head_path": ".github/workflows/renamed.yml",
+    "group": "core"
+  },
+  {
+    "id": "N03",
+    "title": "Add test job with empty permissions",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n  extra:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n    permissions: {}\n"
+    },
+    "expected": "neutral",
+    "rule": null,
+    "group": "core"
+  },
+  {
+    "id": "E01",
+    "title": "Malformed head YAML",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "jobs: [unclosed"
+    },
+    "expected": "error",
+    "rule": null,
+    "group": "diagnostics"
+  },
+  {
+    "id": "E02",
+    "title": "Duplicate mapping keys",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\npermissions: {contents: read}\n"
+    },
+    "expected": "error",
+    "rule": null,
+    "group": "diagnostics"
+  },
+  {
+    "id": "E03",
+    "title": "Unquoted on key",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "on: push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "expected": "neutral",
+    "rule": null,
+    "group": "core"
+  },
+  {
+    "id": "E04",
+    "title": "Malformed base with valid empty-permission head",
+    "base": {
+      ".github/workflows/ci.yml": "jobs: [unclosed"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions: {}\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "expected": "error",
+    "rule": null,
+    "group": "diagnostics"
+  },
+  {
+    "id": "E05",
+    "title": "Missing comparison directory",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "expected": "error",
+    "rule": null,
+    "missing_dir": true,
+    "group": "diagnostics"
+  },
+  {
+    "id": "B01",
+    "title": "Fixture command must not execute",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: touch SHOULD_NOT_EXIST\n"
+    },
+    "expected": "neutral",
+    "rule": null,
+    "group": "safety"
+  },
+  {
+    "id": "B02",
+    "title": "Script edit under unchanged privileges",
+    "base": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
+    },
+    "head": {
+      ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo changed-script\n"
+    },
+    "expected": "neutral",
+    "rule": null,
+    "group": "boundary"
+  }
+]

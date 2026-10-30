@@ -1,0 +1,2 @@
+# Preserve hash-verified upstream bytes; exclude vendored code from language stats.
+vendor/pyyaml/** linguist-vendored -whitespace

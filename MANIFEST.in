@@ -1,0 +1,9 @@
+include action.yml requirements.txt CHANGELOG.md CONTRIBUTING.md SECURITY.md SETUP.md VALIDATION.md PILOT.md
+recursive-include scripts *.py *.sh
+recursive-include tests *.py *.json
+graft examples
+graft docs
+graft benchmarks
+graft vendor
+prune .benchmark-cache
+global-exclude __pycache__ *.py[cod] .DS_Store

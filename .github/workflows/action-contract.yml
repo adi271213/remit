@@ -1,0 +1,86 @@
+name: Action outcome contract and review regressions
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [advisory, require-complete]
+        case:
+          - grants
+          - incomplete
+          - error
+          - missing
+          - secret-partial
+          - secret-base-unknown
+          - replace-commit
+          - replace-blob
+          - redirected
+          - alias-supported
+          - association
+          - association-unresolved
+          - hyphen-neutral
+          - hyphen-secret
+          - hyphen-association
+          - hyphen-secret-prefix
+    steps:
+      - name: Checkout trusted contract sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Create local comparison objects
+        id: refs
+        env:
+          CASE: ${{ matrix.case }}
+        run: python3 -I scripts/hosted_fixture.py "$CASE"
+      - name: Run pinned Action mode
+        id: result
+        continue-on-error: true
+        uses: adi271213/workflow-privilege-check@ff12d9b482a55777815dd5a1391e058986259320 # v0.0.4
+        with:
+          mode: ${{ matrix.mode }}
+          base: ${{ steps.refs.outputs.base }}
+          head: ${{ steps.refs.outputs.head }}
+          repository-path: ${{ steps.refs.outputs.repo }}
+        env:
+          GIT_DIR: ${{ matrix.case == 'redirected' && '/nonexistent/git-redirection' || '' }}
+          GIT_CONFIG_COUNT: ${{ matrix.case == 'redirected' && 'not-a-number' || '0' }}
+      - name: Assert the public outcome contract
+        if: always()
+        env:
+          CASE: ${{ matrix.case }}
+          MODE: ${{ matrix.mode }}
+          STEP_OUTCOME: ${{ steps.result.outcome }}
+          ANALYSIS: ${{ steps.result.outputs.analysis-status }}
+          REVIEW: ${{ steps.result.outputs.review-status }}
+          EXIT_CODE: ${{ steps.result.outputs.analysis-exit-code }}
+          FINDINGS: ${{ steps.result.outputs.finding-count }}
+          REPORT: ${{ steps.result.outputs.report-path }}
+          SUMMARY: ${{ steps.result.outputs.summary-path }}
+        run: |
+          python3 -I - <<'PYCODE'
+          import json, os
+          from pathlib import Path
+          case, mode = os.environ['CASE'], os.environ['MODE']
+          expected = json.loads(Path('tests/hosted_cases.json').read_text())[case]
+          state, review, count = expected['analysis'], expected['review'], len(expected['rules'])
+          exit_code = 0 if state == 'complete' else 2
+          outcome = 'failure' if mode == 'require-complete' and exit_code else 'success'
+          assert os.environ['STEP_OUTCOME'] == outcome, (case, mode, os.environ['STEP_OUTCOME'])
+          assert (os.environ['ANALYSIS'], os.environ['REVIEW'], int(os.environ['FINDINGS']), int(os.environ['EXIT_CODE'])) == (state, review, count, exit_code)
+          report = json.loads(Path(os.environ['REPORT']).read_text())
+          assert report['analysis'] == state and report['action']['reviewStatus'] == review
+          assert sorted(f['rule'] for f in report['findings']) == sorted(expected['rules'])
+          assert Path(os.environ['SUMMARY']).is_file()
+          if 'secrets' in expected:
+              assert sorted(f['after'] for f in report['findings'] if f['rule'] == 'WF004') == sorted(expected['secrets'])
+          if case in ('replace-commit', 'replace-blob', 'redirected'):
+              assert [f['after'] for f in report['findings']] == [{'contents': 'write'}]
+          print('WPC_CONTRACT_RESULT=' + json.dumps({'case': case, 'mode': mode, 'analysis': state, 'review': review,
+              'stepOutcome': outcome, 'findings': count, 'analysisExit': exit_code,
+              'outputsAvailable': True, 'reportsAvailable': True}))
+          PYCODE

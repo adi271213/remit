@@ -1,0 +1,17 @@
+{
+  "cases": 74,
+  "allInputsHashVerified": true,
+  "legacyFactsMatch": true,
+  "legacyExpectedFacts": 45,
+  "analysis": {
+    "complete": 62,
+    "incomplete": 12
+  },
+  "findingsByRule": {
+    "WF003": 8,
+    "WF001": 29,
+    "WF004": 8,
+    "WF007": 1
+  },
+  "scope": "Selected historical regression replay. Legacy labels are self-authored; new context findings are not independently adjudicated. Not precision/recall."
+}
