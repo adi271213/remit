@@ -76,7 +76,7 @@ fetches the PR head without checking it out, and runs the Action pinned to a
 full commit SHA:
 
 ```yaml
-- uses: adi271213/workflow-privilege-check@4f17fb308a85c118694ae09260700ce98740b531 # v0.1.0
+- uses: adi271213/remit@8d8ce7f1b841d3b232d7216be993ae1cb6399867 # v0.1.0
   with:
     mode: advisory
 ```
