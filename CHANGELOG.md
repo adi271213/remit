@@ -6,13 +6,19 @@
 
 First public release.
 
-- **Eight rules** for privilege changes between a pull request's base and head:
+- **Ten rules** for privilege changes between a pull request's base and head:
   token scope increases (WF001), jobs relying on or leaving the repository's
   default token permissions (WF002), review-sensitive triggers such as
   `pull_request_target` (WF003), new secret references and forwarding (WF004),
   self-hosted, custom or group runners (WF005), environment changes (WF007),
-  runner/environment re-pairing in matrices (WF008), and new third-party code
-  in a privileged job (WF009).
+  runner/environment re-pairing in matrices (WF008), new third-party code in a
+  privileged job (WF009), pull request content brought into a
+  `pull_request_target`, `workflow_run` or `issue_comment` job (WF010), and
+  mutable pull request references checked out after a label, comment or
+  environment approval (WF011, time-of-check to time-of-use).
+- **Local code is followed:** steps inside local composite actions and local
+  reusable workflows count, and a change to them is caught even when no
+  workflow file changed.
 - **Reports** as pull request annotations on the line that introduced each
   finding, a Markdown job summary with a review question per rule, JSON, and
   SARIF for GitHub code scanning.

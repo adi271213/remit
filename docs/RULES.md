@@ -138,9 +138,61 @@ before, and the job has at least one of:
 
 That code can use those privileges, so the finding lists them and asks for a
 review of the action and a full-SHA pin. Changing only the ref (`@v1` → `@v2`, or
-to a SHA) is quiet. Local actions (`./`), `docker://` images and actions owned by
-`actions` or `github` are not reported. A job that inherits unknown default
+to a SHA) is quiet. `docker://` images and actions owned by `actions` or `github`
+are not reported. Third-party code reached through a local composite action or a
+local reusable workflow counts too, and the finding is placed on that file's
+`uses:` line (see [Local code](#local-code)). A job that inherits unknown default
 permissions counts only its secrets and environment.
+
+## WF010: pull request content in a privileged workflow
+
+The "pwn request". Workflows triggered by `pull_request_target`, `workflow_run`
+or `issue_comment` run with the base repository's secrets and, by default, a
+token that can write. They are safe only while they don't run anything the pull
+request author controls. WF010 is reported when such a job newly:
+
+- checks out the pull request (`actions/checkout` with a `ref` or `repository`
+  taken from `github.event.pull_request.head.*`, `github.head_ref`,
+  `github.event.workflow_run.head_*` or `refs/pull/…`);
+- fetches it in a script (`gh pr checkout`, `git fetch … pull/…`, or a git
+  command naming one of those expressions on the same line);
+- downloads artifacts from the triggering run (`actions/download-artifact` with a
+  `workflow_run` run ID, or `dawidd6/action-download-artifact`).
+
+The finding lists the trigger and what the job can use. It is also reported when
+an existing checkout becomes privileged because the trigger changed, and when the
+pattern appears inside a local action or reusable workflow the job uses. A
+version bump of a download action is quiet.
+
+## WF011: mutable reference after approval (TOCTOU)
+
+Some privileged workflows wait for a maintainer first: a label
+(`types: [labeled]` or a label check in `if:`), a comment command
+(`issue_comment`, or a comment check in `if:`), or an environment approval. If the
+job then checks out a pull request reference that can move — a branch name
+(`head.ref`, `github.head_ref`, `workflow_run.head_branch`), `refs/pull/N/head`, the
+head repository's default branch, or `gh pr checkout` — the author can push new
+commits after the approval and before the checkout. The code that runs is not the
+code that was reviewed.
+
+WF011 replaces WF010 for these cases. Checking out the immutable
+`github.event.pull_request.head.sha` (or `workflow_run.head_sha`) is not TOCTOU
+and stays WF010, since the job still runs pull request code with privileges.
+
+## Local code
+
+Steps are followed into code the repository itself provides:
+
+- local composite actions, `uses: ./path` (reading `path/action.yml` or
+  `action.yaml`; JavaScript and Docker local actions are not followed);
+- local reusable workflows, `uses: ./.github/workflows/name.yml`, whose jobs run
+  with the calling job's permissions and secrets.
+
+References are followed up to four levels deep, cycles are cut, and paths that
+leave the repository are refused. A workflow whose own file didn't change is
+still examined when a local file it reaches did. A local reference that can't be
+read makes the analysis `incomplete`. Actions and reusable workflows from other
+repositories are not fetched.
 
 ## Matrices and expressions
 

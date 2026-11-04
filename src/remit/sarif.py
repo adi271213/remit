@@ -16,6 +16,11 @@ RULES = {
                                          "selection."),
     "WF007": ("environment-change", "A job's deployment environment is added, removed or changed."),
     "WF008": ("runner-environment-pairing", "A matrix pairs a runner with a different environment."),
+    "WF010": ("pull-request-content-in-privileged-workflow", "A pull_request_target, workflow_run or "
+                                                          "issue_comment job newly checks out, runs or downloads "
+                                                          "pull request content."),
+    "WF011": ("mutable-ref-after-approval", "An approval-gated privileged job checks out a pull request reference "
+                                            "that can change after approval (TOCTOU)."),
     "WF009": ("third-party-code-in-privileged-job", "Third-party code newly runs in a job with write scopes, OIDC, "
                                                     "secrets or an environment."),
 }
