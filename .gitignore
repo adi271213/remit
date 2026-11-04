@@ -9,3 +9,4 @@ dist/
 validation-results.json
 .benchmark-cache/
 benchmark-results.json
+zizmor-comparison.json

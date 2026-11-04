@@ -126,6 +126,22 @@ that exists in the head but not the base is a finding. Removing pairs is quiet,
 and changes already reported by WF005 or WF007 aren't reported again. Try it
 with `workflow-privilege-check scan --dirs examples/association-base examples/association-head --format markdown`.
 
+## WF009: new third-party code in a privileged job
+
+Reported when a job starts running an action or reusable workflow from outside the
+repository (`uses: owner/repo@ref`, or `owner/repo/path@ref`) that it didn't run
+before, and the job has at least one of:
+
+- a `write` token scope or `id-token: write` (explicit, or from `default-permissions`);
+- a secret reference, or all secrets via `secrets: inherit` / `toJSON(secrets)`;
+- a deployment `environment`.
+
+That code can use those privileges, so the finding lists them and asks for a
+review of the action and a full-SHA pin. Changing only the ref (`@v1` → `@v2`, or
+to a SHA) is quiet. Local actions (`./`), `docker://` images and actions owned by
+`actions` or `github` are not reported. A job that inherits unknown default
+permissions counts only its secrets and environment.
+
 ## Matrices and expressions
 
 Expressions are never evaluated. A `runs-on`, runner group or `environment` value

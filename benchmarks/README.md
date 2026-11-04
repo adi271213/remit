@@ -22,6 +22,28 @@ The replay passes when every expected WF001/WF003/WF004 finding matches exactly.
 Findings from later rules (WF005, WF007, WF008) are reported separately in the
 summary but are not checked.
 
+## Comparison with zizmor
+
+`scripts/compare_zizmor.py` runs [zizmor](https://github.com/zizmorcore/zizmor)
+(pedantic persona, offline) on the base and head of every case with findings. A
+finding counts as also surfaced when zizmor reports more findings of a related
+audit for the same workflow file and job at the head than at the base, which
+approximates what code scanning would show as new on the PR.
+
+| Rule | Findings | Also surfaced by zizmor |
+|---|---|---|
+| WF001 | 29 | 13 |
+| WF002 | 15 | 4 |
+| WF003 | 8 | 6 |
+| WF004 | 8 | 0 |
+| WF007 | 1 | 0 |
+| WF009 | 8 | 3 |
+| **Total** | **69** | **26** |
+
+Measured with zizmor 1.32.0. Online audits were skipped, and code scanning
+matches alerts by fingerprint rather than count, so treat these numbers as an
+approximation.
+
 **Caveats.** The cases were chosen by hand rather than sampled, and the expected
 findings were labelled by the project rather than by independent reviewers. Some
 positives are intentional hardening changes. Use the replay to catch

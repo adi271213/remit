@@ -13,12 +13,25 @@ the analysis makes no network calls.
 ## Why
 
 Security-relevant workflow edits are often one line in a large diff:
-`contents: read` becomes `write`, a `pull_request_target` trigger appears, or a
-reusable-workflow call gains `secrets: inherit`. Linters such as
-[zizmor](https://github.com/zizmorcore/zizmor) check the current state of a
-workflow for risky patterns. This tool answers a different question: **what did
-this PR change about what the workflows are allowed to do?** Configuration that
-didn't change produces no output, so the report contains only the difference.
+`contents: read` becomes `write`, a `pull_request_target` trigger appears, a
+reusable-workflow call gains `secrets: inherit`, or a release job starts running
+a new third-party action. This tool answers one question: **what did this PR
+change about what the workflows are allowed to do?** Configuration that didn't
+change produces no output, so the report contains only the difference.
+
+### Use it alongside zizmor
+
+[zizmor](https://github.com/zizmorcore/zizmor) audits the current state of a
+workflow for risky patterns, and with GitHub code scanning a PR shows the alerts
+it introduced. Many privilege increases never become a new alert, because the
+result isn't "bad" by a state rule: a job gaining `id-token: write`, a new
+secret reference, a changed environment, or a new action receiving write access.
+
+On the [74 historical PRs](benchmarks/README.md), this tool reported 69 findings.
+For 43 of them (62%), zizmor 1.32 (pedantic, offline) reported no new finding of
+a related audit in the same workflow and job; for new secret references, none of
+8. Reproduce with `scripts/compare_zizmor.py`. Run zizmor for what is dangerous,
+and this for what got wider.
 
 ## Example
 
@@ -48,6 +61,7 @@ workflow and job, with a short question for the reviewer. The JSON report
 | WF005 | A job's runner changes to a self-hosted, custom-label, runner-group or unresolvable selection |
 | WF007 | A job's deployment environment is added, removed or changed |
 | WF008 | A matrix job pairs a runner with a different environment while the overall runner and environment sets stay the same |
+| WF009 | Third-party code (an action or reusable workflow) newly runs in a job with write scopes, OIDC, secrets or an environment |
 
 See [docs/RULES.md](docs/RULES.md) for the exact behaviour of each rule.
 

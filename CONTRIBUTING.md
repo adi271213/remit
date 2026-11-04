@@ -24,6 +24,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the code is organised.
 | `python scripts/validate.py` | The full unit and integration suite: rules, parser limits, source readers, CLI, the Action controller, and the template's fetch step against local Git repositories. Writes `validation-results.json` (git-ignored) with versions and source hashes. |
 | `python scripts/offline_smoke.py` | Runs the real Action controller against local Git fixtures in both modes. In CI, `--network-namespace` runs it with networking disabled. |
 | `scripts/replay_benchmark.py` | Replays [74 historical public PRs](benchmarks/README.md) and checks the expected WF001/WF003/WF004 findings. |
+| `scripts/compare_zizmor.py` | Needs `zizmor` and a replay cache. Measures how many findings zizmor's new-findings view also surfaces. |
 | *Action outcome contract* workflow | Manually dispatched. Runs the published, pinned Action against the fixtures in `tests/hosted_cases.json` in both modes. |
 
 CI runs `ruff check`, plus `validate.py` and the network-isolated smoke test on
