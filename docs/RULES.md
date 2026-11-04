@@ -164,10 +164,23 @@ an existing checkout becomes privileged because the trigger changed, and when th
 pattern appears inside a local action or reusable workflow the job uses. A
 version bump of a download action is quiet.
 
-Detection is pattern-based: the pull request expression must appear directly in
-the checkout's `ref` or `repository`, or on the same script line as the git
-command. A reference first stored in an environment variable or step output and
-used later is not followed.
+A pull request reference is followed to where it is used through:
+
+- environment variables at workflow, job and step level (`${{ env.X }}`, or
+  `$X` / `${X}` on the script line), and variables written to `$GITHUB_ENV`;
+- step outputs written to `$GITHUB_OUTPUT` or with `core.setOutput()` in
+  `actions/github-script` (`${{ steps.id.outputs.x }}`);
+- job outputs, for jobs that list the producing job in `needs`
+  (`${{ needs.job.outputs.x }}`);
+- inputs passed to local composite actions and reusable workflows
+  (`${{ inputs.x }}`), and a composite action's outputs back to the caller.
+
+Pull request data looked up while the job runs (`gh pr view`, `gh api …/pulls`)
+counts as pull request content. For WF011 it counts as mutable, because the
+lookup happens after the approval. The finding shows where the value came from,
+for example `${{ env.SHA }} (from github.event.pull_request.head.sha)`. Values
+built in other ways, such as string manipulation in a script or files passed
+between jobs, are not traced.
 
 ## WF011: mutable reference after approval (TOCTOU)
 

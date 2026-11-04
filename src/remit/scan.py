@@ -146,6 +146,7 @@ class Locations:
     """1-based source lines for findings, taken from the composed YAML nodes."""
 
     def __init__(self, root):
+        self.root = root
         self.top = _keys(root)
         jobs = self.top.get("jobs", (None, None))[1]
         self.jobs = {name: (line, value) for name, (line, value) in _keys(jobs).items()}
@@ -460,6 +461,10 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, _audit=False) -> d
         if len(documents) != 2:
             continue
         before, after = documents["base"], documents["head"]
+        # Whole-workflow walks: jobs in dependency order, so needs outputs carry across.
+        workflow_flows = {
+            side: local.workflow(path, documents[side], nodes[side].root if nodes[side] else None)
+            for side, local in (("base", base_local), ("head", head_local))}
         try:
             old_triggers = _triggers(before) if base.files.get(path) is not None else set()
             new_triggers = _triggers(after)
@@ -548,14 +553,10 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, _audit=False) -> d
                             lines.secret(name, secret))
             # Code the job runs, followed into local actions and reusable workflows.
             flows = {}
-            for side, local, job in (("base", base_local, old_job), ("head", head_local, new_job)):
-                if job is None:
-                    flows[side] = ([], [])
-                    continue
-                known = len(local.issues)
-                job_node = nodes[side].jobs.get(name, (None, None))[1] if nodes[side] else None
-                flows[side] = local.job(path, job, job_node)
-                for reason in dict.fromkeys(local.issues[known:]):
+            for side, job in (("base", old_job), ("head", new_job)):
+                codes, fetches, issues = workflow_flows[side].get(name, ([], [], [])) if job else ([], [], [])
+                flows[side] = (codes, fetches)
+                for reason in dict.fromkeys(issues):
                     diagnostic(path, side, reason, job=name, area="local-code")
             if "head" not in refs:
                 continue
