@@ -119,13 +119,16 @@ class LocalCode:
         self.snapshot = snapshot
         self.load_yaml = load_yaml
         self.cache = {}
+        self.texts = {}
         self.issues = []    # reasons a local reference could not be followed
         self.touched = set()
 
     def text(self, path: str) -> str | None:
         if path in self.snapshot.files:
             return self.snapshot.files[path]
-        return self.snapshot.read(path) if self.snapshot.read else None
+        if path not in self.texts:
+            self.texts[path] = self.snapshot.read(path) if self.snapshot.read else None
+        return self.texts[path]
 
     def _load(self, path: str, kind: str):
         if path not in self.cache:
