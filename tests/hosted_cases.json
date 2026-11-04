@@ -155,5 +155,14 @@
     "rules": [
       "WF002"
     ]
+  },
+  "pull-request-target-checkout": {
+    "base": "on: pull_request_target\npermissions: {contents: read}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n",
+    "head": "on: pull_request_target\npermissions: {contents: read}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          ref: ${{ github.event.pull_request.head.sha }}\n",
+    "analysis": "complete",
+    "review": "suggested",
+    "rules": [
+      "WF010"
+    ]
   }
 }

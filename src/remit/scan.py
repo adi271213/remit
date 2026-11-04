@@ -6,6 +6,7 @@ import yaml
 
 from .sources import MAX_FILE, Snapshot
 from .contexts import compare_contexts
+from .flows import PRIVILEGED_TRIGGERS, LocalCode, gate
 from .expressions import IDENTIFIER
 from .yaml_limits import MAX_ALIASES, validate_graph
 
@@ -27,8 +28,6 @@ REVIEW_TRIGGERS = {
     "discussion", "discussion_comment",
 }
 TOKEN = re.compile(IDENTIFIER)
-# GitHub-maintained actions are not reported by WF009.
-FIRST_PARTY_OWNERS = {"actions", "github"}
 # GitHub's "restricted" default, the narrowest default a repository or organization
 # can configure. Explicit permissions at or below it can never exceed the real default.
 MINIMUM_DEFAULT = {**{scope: "none" for scope in SCOPES}, "contents": "read", "packages": "read"}
@@ -93,7 +92,11 @@ def parse(text: str) -> dict:
     return _parse(text)[0]
 
 
-def _parse(text: str) -> tuple[dict, "Locations"]:
+def load_yaml(text: str):
+    """Compose and construct one YAML document within the token, alias and graph limits.
+
+    Returns (document, root node). Raises ValueError or yaml.YAMLError.
+    """
     if len(text.encode()) > MAX_FILE:
         raise ValueError("Workflow exceeds byte limit.")
     depth = 0
@@ -120,6 +123,11 @@ def _parse(text: str) -> tuple[dict, "Locations"]:
         document = loader.construct_document(node) if node is not None else None
     finally:
         loader.dispose()
+    return document, node
+
+
+def _parse(text: str) -> tuple[dict, "Locations"]:
+    document, node = load_yaml(text)
     if not isinstance(document, dict) or not isinstance(document.get("jobs"), dict) or not document["jobs"]:
         raise ValueError("Workflow needs a nonempty jobs mapping.")
     if "on" not in document:
@@ -322,29 +330,6 @@ def _secret_expression(expression: str) -> tuple[set[str], bool]:
     return names, unknown
 
 
-def _third_party_uses(job) -> dict[str, str]:
-    """Map normalized owner/repo[/path] -> the `uses:` text, for code from outside the repository.
-
-    Local actions, Docker images and GitHub-owned actions are excluded; refs are
-    dropped so that version bumps of an already-used action stay quiet.
-    """
-    if not isinstance(job, dict):
-        return {}
-    values = [job.get("uses")]
-    steps = job.get("steps")
-    if isinstance(steps, list):
-        values += [step.get("uses") for step in steps if isinstance(step, dict)]
-    result = {}
-    for value in values:
-        if not isinstance(value, str) or value.startswith(("./", "docker://")) or "${{" in value:
-            continue
-        target = value.split("@", 1)[0].strip().casefold()
-        if target.split("/", 1)[0] in FIRST_PARTY_OWNERS or "/" not in target:
-            continue
-        result.setdefault(target, value)
-    return result
-
-
 def _privileges(job, scope, secrets) -> list[str]:
     """What third-party code in this job could use: write scopes, OIDC, secrets, environment."""
     granted = [f"{name}: write" for name, level in sorted((scope or {}).items()) if level == "write"]
@@ -393,9 +378,12 @@ def compare(base: Snapshot, head: Snapshot, defaults=None) -> dict:
         report["diagnostics"].append({"file": path, "side": side, "job": job,
                                       "kind": "error" if error else "incomplete", "reason": reason})
 
-    def finding(rule, path, job, before, after, message, line=None):
-        report["findings"].append({"rule": rule, "file": path, "job": job, "line": line,
-                                   "before": before, "after": after, "message": message})
+    def finding(rule, path, job, before, after, message, line=None, workflow=None):
+        item = {"rule": rule, "file": path, "job": job, "line": line,
+                "before": before, "after": after, "message": message}
+        if workflow is not None and workflow != path:
+            item["workflow"] = workflow  # the finding sits in a local action or reusable workflow
+        report["findings"].append(item)
 
     if defaults is not None:
         defaults = permissions(defaults)
@@ -409,11 +397,29 @@ def compare(base: Snapshot, head: Snapshot, defaults=None) -> dict:
             old_only.remove(old)
             renamed.add(new)
             report["renames"].append({"before": old, "after": new})
+    base_local, head_local = LocalCode(base, load_yaml), LocalCode(head, load_yaml)
+
+    def local_code_changed(path):
+        """True when an unchanged workflow reaches local code that changed."""
+        paths = set()
+        for local in (base_local, head_local):
+            text = local.text(path)
+            if text is None:
+                continue
+            try:
+                paths |= local.dependencies(_parse(text)[0])
+            except (ValueError, yaml.YAMLError, RecursionError):
+                continue
+        return any(base_local.text(dep) != head_local.text(dep) for dep in paths)
+
     for path in sorted(head.files):
-        if path in renamed or base.files.get(path) == head.files[path]:
+        if path in renamed:
+            continue
+        if base.files.get(path) == head.files[path] and not local_code_changed(path):
             continue
         report["examinedFiles"].append(path)
         documents = {}
+        nodes = {"base": None, "head": None}
         lines = None
         for side, text in (("base", base.files.get(path)), ("head", head.files[path])):
             if text is None:
@@ -421,6 +427,7 @@ def compare(base: Snapshot, head: Snapshot, defaults=None) -> dict:
                 continue
             try:
                 documents[side], located = _parse(text)
+                nodes[side] = located
                 if side == "head":
                     lines = located
             except (ValueError, yaml.YAMLError, RecursionError) as exc:
@@ -517,16 +524,77 @@ def compare(base: Snapshot, head: Snapshot, defaults=None) -> dict:
                             f"Job {name} adds a reference or forwarding path to {display}. "
                             "Availability and actual access are not verified.",
                             lines.secret(name, secret))
+            # Code the job runs, followed into local actions and reusable workflows.
+            flows = {}
+            for side, local, job in (("base", base_local, old_job), ("head", head_local, new_job)):
+                if job is None:
+                    flows[side] = ([], [])
+                    continue
+                known = len(local.issues)
+                job_node = nodes[side].jobs.get(name, (None, None))[1] if nodes[side] else None
+                flows[side] = local.job(path, job, job_node)
+                for reason in dict.fromkeys(local.issues[known:]):
+                    diagnostic(path, side, reason, job=name)
+            if "head" not in values or "head" not in refs:
+                continue
+            granted = _privileges(new_job, new_value, refs["head"][0])
+
             # WF009: third-party code newly running where it can use the job's privileges.
-            if "head" in values and "head" in refs:
-                granted = _privileges(new_job, new_value, refs["head"][0])
-                old_uses = _third_party_uses(old_job)
-                for target, reference in sorted(_third_party_uses(new_job).items()):
-                    if granted and target not in old_uses:
-                        finding("WF009", path, name, None, {"uses": reference, "privileges": granted},
-                                f"Job {name} now runs third-party code from {reference}, which can use "
-                                f"{'; '.join(granted)}. Review the action and pin it to a full commit SHA.",
-                                lines.uses(name, reference))
+            old_targets = {code.target for code in flows["base"][0]}
+            reported = set()
+            for code in sorted(flows["head"][0], key=lambda c: c.target):
+                if granted and code.target not in old_targets and code.target not in reported:
+                    reported.add(code.target)
+                    via = f" through {code.file}" if code.file != path else ""
+                    finding("WF009", code.file, name, None, {"uses": code.uses, "privileges": granted},
+                            f"Job {name} now runs third-party code from {code.uses}{via}, which can use "
+                            f"{'; '.join(granted)}. Review the action and pin it to a full commit SHA.",
+                            code.line, workflow=path)
+
+            # WF010 / WF011: pull request content brought into a privileged workflow.
+            def privileged(document, exists):
+                try:
+                    return set(_triggers(document)) & set(PRIVILEGED_TRIGGERS) if exists else set()
+                except ValueError:
+                    return set()
+            head_triggers = privileged(after, True)
+            if not head_triggers:
+                continue
+            base_triggers = privileged(before, base.files.get(path) is not None and old_job is not None)
+            head_gate = gate(after, new_job, head_triggers)
+            base_gate = gate(before, old_job, base_triggers) if old_job is not None else None
+
+            def keyed(fetch, gate_):
+                rule = "WF011" if fetch.mutable and gate_ else "WF010"
+                return rule, fetch.kind, " ".join(fetch.ref.split()).casefold(), fetch.file
+            old_keys = {keyed(f, base_gate) for f in flows["base"][1]} if base_triggers else set()
+            capabilities = list(granted)
+            if new_value is None:
+                capabilities.append("the repository's default token permissions")
+            capability_text = "; ".join(capabilities) or "a read-only token"
+            trigger_text = ", ".join(sorted(head_triggers))
+            seen = set()
+            for fetch in flows["head"][1]:
+                key = keyed(fetch, head_gate)
+                if key in old_keys or key in seen:
+                    continue
+                seen.add(key)
+                after_value = {"kind": fetch.kind, "ref": fetch.ref, "triggers": sorted(head_triggers),
+                               "privileges": capabilities}
+                via = f" through {fetch.file}" if fetch.file != path else ""
+                if key[0] == "WF011":
+                    finding("WF011", fetch.file, name, None, {**after_value, "gate": head_gate},
+                            f"Job {name} waits for {head_gate} and then checks out a mutable pull request "
+                            f"reference ({fetch.ref}){via}. The author can push new commits after approval and "
+                            "before checkout (time-of-check to time-of-use). Check out the approved commit SHA, "
+                            "such as github.event.pull_request.head.sha.",
+                            fetch.line, workflow=path)
+                else:
+                    finding("WF010", fetch.file, name, None, after_value,
+                            f"Job {name} runs on {trigger_text} and now brings in pull request content "
+                            f"({fetch.ref}){via} where it can use {capability_text}. Code from the pull request "
+                            "can act with those privileges; run it in a separate job without secrets or write "
+                            "access.", fetch.line, workflow=path)
     if report["inheritedComparisons"]:
         report["assumptions"].append(
             "Unchanged inherited permissions for matched job IDs compare symbolically, assuming external "
