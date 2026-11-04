@@ -13,6 +13,7 @@
       "before": null,
       "file": ".github/workflows/release.yml",
       "job": null,
+      "line": 2,
       "message": "Review-sensitive trigger pull_request_target introduced. Review who can invoke it and token/secret access.",
       "rule": "WF003"
     },
@@ -25,6 +26,7 @@
       },
       "file": ".github/workflows/release.yml",
       "job": "publish",
+      "line": 9,
       "message": "Job publish is newly configured to request an OIDC identity token. Runtime access is not verified.",
       "rule": "WF001"
     },
@@ -37,6 +39,7 @@
       },
       "file": ".github/workflows/release.yml",
       "job": "publish",
+      "line": 8,
       "message": "Job publish is newly configured to use packages: write. Runtime access is not verified.",
       "rule": "WF001"
     },
@@ -45,6 +48,7 @@
       "before": null,
       "file": ".github/workflows/release.yml",
       "job": "publish",
+      "line": 11,
       "message": "Job publish adds a reference or forwarding path to PUBLISH_TOKEN. Availability and actual access are not verified.",
       "rule": "WF004"
     }
@@ -57,7 +61,8 @@
     "Trigger filter changes and secret delivery to individual steps are outside coverage.",
     "Trigger review covers selected event names only: discussion, discussion_comment, issue_comment, issues, pull_request_target, workflow_run.",
     "Runner ownership/inventory and environment secret/protection settings are not observed. Standard runner labels follow a documented convention list.",
-    "Only direct static matrix fields resolve runner/environment expressions; unchanged unresolved selections compare symbolically under fixed external context."
+    "Only direct static matrix fields resolve runner/environment expressions; unchanged unresolved selections compare symbolically under fixed external context.",
+    "Runner/environment association comparison covers supported static rows with unchanged individual target sets; it does not trace secret delivery or runtime reachability."
   ],
   "renames": [],
   "review": "suggested",

@@ -27,7 +27,8 @@ def entry():
         except (OSError, ValueError, KeyError, TypeError):
             print("Could not resolve comparison SHAs from the event.", file=sys.stderr)
             return 2
-    if not all(isinstance(value, str) and re.fullmatch(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}", value) for value in (base, head)):
+    full_sha = re.compile(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}")
+    if not all(isinstance(value, str) and full_sha.fullmatch(value) for value in (base, head)):
         print("The Action requires full commit SHAs.", file=sys.stderr)
         return 2
     args = ["scan", "--repo", os.environ.get("PRIVILEGE_REPOSITORY", "."), "--base", base, "--head", head]
@@ -35,6 +36,8 @@ def entry():
         args += ["--default-permissions", defaults]
     if output := os.environ.get("PRIVILEGE_REPORT"):
         args += ["--output", output]
+    if sarif := os.environ.get("PRIVILEGE_SARIF"):
+        args += ["--sarif", sarif]
     if summary := os.environ.get("PRIVILEGE_SUMMARY") or os.environ.get("GITHUB_STEP_SUMMARY"):
         args += ["--summary", summary]
     return main(args)

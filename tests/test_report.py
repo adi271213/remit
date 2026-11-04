@@ -36,10 +36,12 @@ class DeltaReport(unittest.TestCase):
         text = markdown(report)
         self.assertEqual(text.count("Job: build"), 1)
         self.assertEqual(text.count("Confirm that this job needs the new token scopes"), 1)
-        self.assertIn("packages: none | packages: write", text)
+        self.assertEqual(text.count("| WF001 |"), 1)
+        self.assertIn("| WF001 | contents: read; packages: none | contents: write; packages: write |", text)
 
     def test_partial_analysis_keeps_known_delta_and_unresolved_reason(self):
-        for extra in ("on: workflow_dispatch\njobs:\n  unknown:\n    runs-on: ubuntu-latest\n    steps: [{run: echo fixture}]\n",
+        for extra in ("on: workflow_dispatch\npermissions: {}\njobs:\n  unknown:\n    runs-on: ubuntu-latest\n"
+                      "    steps: [{run: 'echo ${{ secrets[inputs.name] }}'}]\n",
                       "on: workflow_dispatch\njobs: [unclosed\n"):
             with self.subTest(extra=extra):
                 report = scan(BASE.replace("contents: read", "contents: write"),
@@ -91,3 +93,47 @@ class DeltaReport(unittest.TestCase):
         self.assertIn("No supported privilege expansions detected", text)
         self.assertNotIn("Review:", text)
         self.assertNotIn("| Before |", text)
+
+    def test_findings_from_one_file_share_a_single_file_heading(self):
+        head = (BASE.replace("on: workflow_dispatch", "on: [workflow_dispatch, issues]")
+                .replace("contents: read", "contents: write")
+                + "  deploy:\n    runs-on: ubuntu-latest\n    steps: [{run: echo deploy}]\n")
+        text = markdown(scan(head))
+        self.assertEqual(text.count("### .github/workflows/ci.yml"), 1)
+        self.assertLess(text.index("Workflow-level change"), text.index("Job: build"))
+        self.assertIn("Job: deploy", text)
+
+    def test_error_report_without_commits_does_not_print_none(self):
+        from privilege_check.scan import error_report
+        text = markdown(error_report("Could not read comparison inputs."))
+        self.assertIn("Base: unavailable", text)
+        self.assertNotIn("None", text)
+
+    def test_checked_in_sample_reports_match_current_output(self):
+        from privilege_check.cli import main
+        import contextlib
+        import io
+        examples = ROOT / "examples"
+        for fmt, name in (("markdown", "sample-report.md"), ("json", "sample-report.json")):
+            with self.subTest(fmt=fmt):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    main(["scan", "--dirs", str(examples / "base"), str(examples / "head"), "--format", fmt])
+                self.assertEqual(out.getvalue(), (examples / name).read_text(encoding="utf-8"),
+                                 f"Regenerate examples/{name} after changing report output.")
+
+    def test_write_all_is_one_markdown_row_but_every_scope_in_json(self):
+        report = scan(BASE.replace("permissions: {contents: read}", "permissions: write-all"))
+        self.assertGreater(len(report["findings"]), 10)
+        text = markdown(report)
+        self.assertEqual(text.count("| WF001 |"), 1)
+        self.assertIn("including an OIDC identity token", text)
+
+    def test_findings_record_the_head_line_that_introduced_them(self):
+        head = ("on: [workflow_dispatch, issues]\npermissions: {contents: read}\njobs:\n  build:\n"
+                "    permissions:\n      contents: read\n      id-token: write\n    runs-on: [self-hosted]\n"
+                "    environment: prod\n    steps:\n      - run: echo ${{ secrets.NEW }}\n")
+        lines = {(f["rule"], str(f["after"])): f["line"] for f in scan(head)["findings"]}
+        self.assertEqual(lines, {("WF003", "issues"): 1, ("WF001", "{'id-token': 'write'}"): 7,
+                                 ("WF005", "{'labels': ['self-hosted'], 'groups': []}"): 8,
+                                 ("WF007", "{'names': ['prod']}"): 9, ("WF004", "NEW"): 11})

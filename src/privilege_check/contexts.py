@@ -11,6 +11,7 @@ windows-2025-vs2026 windows-11-arm windows-11-vs2026-arm macos-latest macos-13
 macos-14 macos-15 macos-26 xcode-27
 macos-15-intel macos-26-intel macos-14-large macos-14-xlarge macos-15-large
 macos-15-xlarge macos-26-large macos-26-xlarge""".split())
+MAX_MATRIX_ROWS = 256
 MATRIX = re.compile(r"\s*\$\{\{\s*(?i:matrix)\.(" + IDENTIFIER + r")\s*\}\}\s*")
 
 
@@ -19,41 +20,64 @@ def _matrix(job):
     return strategy.get("matrix") if isinstance(strategy, dict) else None
 
 
+def _is_dynamic(value):
+    if isinstance(value, str):
+        return "${{" in value
+    if isinstance(value, dict):
+        return any(_is_dynamic(x) for x in value.values())
+    if isinstance(value, list):
+        return any(_is_dynamic(x) for x in value)
+    return False
+
+
 def _matrix_rows(matrix):
-    """Expand a small literal matrix using GitHub's exclude/include ordering."""
+    """Expand a small literal matrix using GitHub's exclude/include ordering.
+
+    Returns None when the matrix is dynamic, malformed, ambiguous or too large.
+    """
     def fields(mapping):
+        # Matrix variable names are case-insensitive; reject case-only duplicates.
         folded = {key.casefold(): value for key, value in mapping.items()}
         return folded if len(folded) == len(mapping) else None
 
-    def dynamic(value):
-        if isinstance(value, str): return "${{" in value
-        if isinstance(value, dict): return any(dynamic(x) for x in value.values())
-        if isinstance(value, list): return any(dynamic(x) for x in value)
-        return False
-    if dynamic(matrix): return None
+    if _is_dynamic(matrix):
+        return None
     axes = fields({k: v for k, v in matrix.items() if k not in ("include", "exclude")})
     include, exclude = matrix.get("include", []), matrix.get("exclude", [])
-    if axes is None or any(not isinstance(v, list) or not v for v in axes.values()): return None
-    if any(not isinstance(v, list) or len(v) > 256 or any(not isinstance(x, dict) for x in v)
-           for v in (include, exclude)): return None
-    include, exclude = ([fields(item) for item in items] for items in (include, exclude))
-    if any(item is None for item in include + exclude): return None
+    if axes is None or any(not isinstance(v, list) or not v for v in axes.values()):
+        return None
+    for items in (include, exclude):
+        if not isinstance(items, list) or len(items) > MAX_MATRIX_ROWS:
+            return None
+        if any(not isinstance(x, dict) for x in items):
+            return None
+    include = [fields(item) for item in include]
+    exclude = [fields(item) for item in exclude]
+    if any(item is None for item in include + exclude):
+        return None
     size = 1
     for values in axes.values():
         size *= len(values)
-        if size > 256: return None
+        if size > MAX_MATRIX_ROWS:
+            return None
+
     originals = [dict(zip(axes, values)) for values in product(*axes.values())] if axes else []
-    originals = [row for row in originals if not any(all(k in row and row[k] == v for k, v in item.items()) for item in exclude)]
+    originals = [row for row in originals
+                 if not any(all(k in row and row[k] == v for k, v in item.items()) for item in exclude)]
     rows = [row.copy() for row in originals]
     appended = []
     for item in include:
+        # An include entry extends every original row it does not contradict;
+        # otherwise it becomes a new row.
         matched = False
         for original, row in zip(originals, rows):
             if all(k not in original or original[k] == v for k, v in item.items()):
                 row.update(item)
                 matched = True
-        if not matched: appended.append(item.copy())
-    return rows + appended if len(rows) + len(appended) <= 256 else None
+        if not matched:
+            appended.append(item.copy())
+    rows += appended
+    return rows if len(rows) <= MAX_MATRIX_ROWS else None
 
 
 def _options(value, job):
@@ -179,13 +203,16 @@ def _compare_associations(before, after, unresolved):
     if not unresolved["runs-on"] and _runner_targets(before) != _runner_targets(after):
         return [], []
     if any(unresolved.values()):
-        return [], [("incomplete", "Changed runner/environment associations cannot be fully resolved; only direct static matrix fields are supported.")]
+        return [], [("incomplete", "Changed runner/environment associations cannot be fully resolved; "
+                                   "only direct static matrix fields are supported.")]
     old = _runner_targets(before, include_environment=True)
     new = _runner_targets(after, include_environment=True)
     if not any(pair not in old for pair in new):
         return [], []
     return [{"rule": "WF008", "before": {"pairs": old}, "after": {"pairs": new},
-             "message": "New runner/environment pairing introduced while individual target sets stay unchanged. Review the paired runner and environment-scoped settings; actual access and protection policies are not verified."}], []
+             "message": "New runner/environment pairing introduced while individual target sets stay unchanged. "
+                        "Review the paired runner and environment-scoped settings; actual access and protection "
+                        "policies are not verified."}], []
 
 
 def compare_contexts(before, after):
@@ -201,13 +228,17 @@ def compare_contexts(before, after):
         unresolved[field] = old_unknown or new_unknown
         old_selector, new_selector = (before or {}).get(field), after.get(field)
         if field == "environment":
-            if isinstance(old_selector, dict): old_selector = old_selector.get("name")
-            if isinstance(new_selector, dict): new_selector = new_selector.get("name")
+            if isinstance(old_selector, dict):
+                old_selector = old_selector.get("name")
+            if isinstance(new_selector, dict):
+                new_selector = new_selector.get("name")
         if old_unknown or new_unknown:
             if old_selector == new_selector and _matrix(before) == _matrix(after):
-                assumptions.append(f"Unchanged unresolved {field} selector/matrix compares symbolically; external runtime context is assumed fixed and is not observed.")
+                assumptions.append(f"Unchanged unresolved {field} selector/matrix compares symbolically; "
+                                   "external runtime context is assumed fixed and is not observed.")
                 continue
-            diagnostics.append(("incomplete", f"Changed {field} selection cannot be fully resolved; only direct static matrix fields are supported."))
+            diagnostics.append(("incomplete", f"Changed {field} selection cannot be fully resolved; "
+                                              "only direct static matrix fields are supported."))
             if old_selector == new_selector:
                 # A matrix/context edit does not prove that the unchanged
                 # unresolved selector targets a different resource.
@@ -232,9 +263,11 @@ def compare_contexts(before, after):
         if field == "runs-on":
             if not (old_unknown or new_unknown) and not (new["groups"] or set(new["labels"]) - HOSTED_LABELS):
                 continue
-            message = "Runner selection changed to a self-hosted, custom/group, or unresolved context. Review infrastructure access; ownership and execution are not verified."
+            message = ("Runner selection changed to a self-hosted, custom/group, or unresolved context. "
+                       "Review infrastructure access; ownership and execution are not verified.")
         else:
-            message = "Environment selection changed. Review scoped configuration and approval requirements; secret availability and protection policies are not verified."
+            message = ("Environment selection changed. Review scoped configuration and approval requirements; "
+                       "secret availability and protection policies are not verified.")
         findings.append({"rule": rule, "before": old, "after": new, "message": message})
     if not findings and not diagnostics:
         try:

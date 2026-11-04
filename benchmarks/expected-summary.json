@@ -4,12 +4,13 @@
   "legacyFactsMatch": true,
   "legacyExpectedFacts": 45,
   "analysis": {
-    "complete": 62,
-    "incomplete": 12
+    "complete": 74
   },
   "findingsByRule": {
     "WF003": 8,
     "WF001": 29,
+    "WF002": 15,
+    "WF009": 8,
     "WF004": 8,
     "WF007": 1
   },

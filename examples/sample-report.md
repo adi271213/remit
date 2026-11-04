@@ -15,14 +15,11 @@ Review:
 
 - WF003: Check who can cause the new event and which revision supplies the executed code. Review token and secret access.
 
-### .github/workflows/release.yml
-
 Job: publish
 
 | Rule | Before | After | Change |
 |---|---|---|---|
-| WF001 | id-token: none | id-token: write | Job publish is newly configured to request an OIDC identity token. Runtime access is not verified. |
-| WF001 | packages: none | packages: write | Job publish is newly configured to use packages: write. Runtime access is not verified. |
+| WF001 | id-token: none; packages: none | id-token: write; packages: write | Job publish gains 2 higher token permission scopes, including an OIDC identity token. Runtime access is not verified. |
 | WF004 | Not recorded | PUBLISH&#95;TOKEN | Job publish adds a reference or forwarding path to PUBLISH&#95;TOKEN. Availability and actual access are not verified. |
 
 Review:

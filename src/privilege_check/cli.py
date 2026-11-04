@@ -4,7 +4,8 @@ from pathlib import Path
 import sys
 
 from .report import markdown
-from .scan import LIMITATIONS, compare, permissions
+from .sarif import sarif
+from .scan import compare, error_report, permissions
 from .sources import InputError, directory, git_snapshot
 
 
@@ -18,9 +19,10 @@ def main(argv=None) -> int:
     scan.add_argument("--base", help="Base ref, resolved and recorded as an exact commit")
     scan.add_argument("--head", help="Head ref, resolved and recorded as an exact commit")
     scan.add_argument("--default-permissions", help='Trusted explicit JSON map, for example {"contents":"read"}')
-    scan.add_argument("--format", choices=("json", "markdown"), default="json")
+    scan.add_argument("--format", choices=("json", "markdown", "sarif"), default="json")
     scan.add_argument("--output", type=Path)
     scan.add_argument("--summary", type=Path, help="Explicit path to append a Markdown job summary")
+    scan.add_argument("--sarif", type=Path, help="Also write a SARIF 2.1.0 report to this path")
     args = parser.parse_args(argv)
     if args.repo and (not args.base or not args.head):
         parser.error("--repo requires --base and --head")
@@ -45,15 +47,18 @@ def main(argv=None) -> int:
     except (InputError, OSError) as exc:
         # Do not echo filesystem errors, source text, credentials, or git stderr.
         reason = str(exc) if isinstance(exc, InputError) else "Could not read comparison inputs."
-        result = {"schemaVersion": "0.1", "base": None, "head": None, "analysis": "error",
-                  "review": "none", "findings": [], "diagnostics": [{"file": "input", "job": None,
-                  "side": "comparison", "kind": "error", "reason": reason}], "limitations": LIMITATIONS.copy()}
-    text = json.dumps(result, indent=2, sort_keys=True) + "\n" if args.format == "json" else markdown(result)
+        result = error_report(reason)
+    if args.format == "markdown":
+        text = markdown(result)
+    else:
+        text = json.dumps(sarif(result) if args.format == "sarif" else result, indent=2, sort_keys=True) + "\n"
     try:
         if args.output:
             args.output.write_text(text, encoding="utf-8")
         else:
             sys.stdout.write(text)
+        if args.sarif:
+            args.sarif.write_text(json.dumps(sarif(result), indent=2, sort_keys=True) + "\n", encoding="utf-8")
         if args.summary:
             with args.summary.open("a", encoding="utf-8") as handle:
                 handle.write(markdown(result))

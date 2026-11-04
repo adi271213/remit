@@ -1,75 +1,85 @@
 # Contributing
 
-Workflow Privilege Check reports selected configuration changes between commits.
-Keep contributions small enough to review and reproduce. A finding is a prompt
-for review, including intentional changes; it is not a vulnerability claim.
-
 ## Development
 
-Use Python 3.11 or newer and Git:
+Python 3.11+ and Git are required.
 
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install -e .
+pip install -e .
 python scripts/validate.py
 python scripts/offline_smoke.py
+pip install ruff==0.16.9 && ruff check
 ```
 
-The validator runs the full synthetic, unit and local Git/Action integration
-suite and writes ignored `validation-results.json`. CI repeats it on Python
-3.11 through 3.14 and runs the Action in a disconnected Linux network namespace.
-To run one test file, use `python -m unittest discover -s tests -p 'test_contexts.py'`.
+To run one test file: `python -m unittest discover -s tests -p 'test_contexts.py'`.
 
-See the [architecture](docs/ARCHITECTURE.md) for module responsibilities and trust
-boundaries. The CLI installation uses PyPI; the Action uses its checked-in,
-hash-verified dependency bundle. See [dependency maintenance](vendor/README.md).
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the code is organised.
 
-## Changing behavior
+## Tests
 
-For a rule or parser change, add a regression that demonstrates the issue and a
-nearby case that should stay quiet. Check incomplete/error cases as well as
-findings. Known findings must survive uncertainty in unrelated supported fields.
-Keep analysis deterministic and local: it must not execute proposed code, fetch
-remote dependencies or inspect live repository/cloud policy.
+| Command | What it covers |
+|---|---|
+| `python scripts/validate.py` | The full unit and integration suite: rules, parser limits, source readers, CLI, the Action controller, and the template's fetch step against local Git repositories. Writes `validation-results.json` (git-ignored) with versions and source hashes. |
+| `python scripts/offline_smoke.py` | Runs the real Action controller against local Git fixtures in both modes. In CI, `--network-namespace` runs it with networking disabled. |
+| `scripts/replay_benchmark.py` | Replays [74 historical public PRs](benchmarks/README.md) and checks the expected WF001/WF003/WF004 findings. |
+| `scripts/compare_zizmor.py` | Needs `zizmor` and a replay cache. Measures how many findings zizmor's new-findings view also surfaces. |
+| *Action outcome contract* workflow | Manually dispatched. Runs the published, pinned Action against the fixtures in `tests/hosted_cases.json` in both modes. |
 
-Update the relevant policy and changelog when supported behavior changes. Keep
-rule IDs stable. Report `schemaVersion` is independent of package version; review
-consumer compatibility before changing the JSON contract. Findings alone must
-not silently become merge enforcement.
+CI runs `ruff check`, plus `validate.py` and the network-isolated smoke test on
+Python 3.11–3.14. The repository also runs its own Action on every PR
+([`privilege-review.yml`](.github/workflows/privilege-review.yml)), loaded from
+the PR's base commit.
 
-Changes to the calling workflow need tests of its actual shell steps. Action
-controller, installation or dependency changes also need the offline smoke test;
-run the hosted contract and a disposable consumer installation when those paths
-change. [Validation](VALIDATION.md) distinguishes local checks from hosted tests.
+## Changing behaviour
 
-For rule changes, replay the [hash-pinned historical cases](benchmarks/README.md).
-Inspect new facts separately from the frozen legacy labels. Do not relabel a case
-just to make a test pass, or describe the replay as independently measured accuracy.
+- Add a regression test that fails without the change, plus a nearby case that
+  should stay quiet. Cover `incomplete`/`error` outcomes too.
+- Findings already established must survive uncertainty elsewhere in the file.
+- Analysis must stay local: no executing workflow content, no network access, no
+  querying live repository settings.
+- Keep rule IDs stable. Bump `schemaVersion` only for incompatible changes to the
+  JSON report.
+- Update [docs/RULES.md](docs/RULES.md) and the `Unreleased` section of the
+  [changelog](CHANGELOG.md).
+- If report output changes, regenerate `examples/sample-report.md` and
+  `examples/sample-report.json` (a test checks them).
+- For rule changes, run the replay and look at any new findings. Don't change an
+  expected result just to make the replay pass.
+- Changes to the Action controller, template or bundled dependency need the
+  offline smoke test, and the hosted contract before release.
 
-## Pull requests and reports
+## Releases
 
-Explain the observed problem, the resulting behavior and the checks you ran.
-Include a small public or synthetic example for bugs. Avoid credentials, private
-logs and unnecessary repository content. Report vulnerabilities through
-[private security reporting](SECURITY.md).
+1. Update the version in `pyproject.toml` and `src/privilege_check/__init__.py`,
+   and move `Unreleased` entries in the changelog under the new version.
+2. Run CI, the offline smoke test, the replay and the hosted contract on the
+   release candidate.
+3. Tag the release commit and publish a GitHub release. Put links to the CI and
+   contract runs in the release notes. Publishing the release runs
+   [`publish.yml`](.github/workflows/publish.yml), which checks that the tag
+   matches the package version, builds with hash-pinned tools, tests the wheel
+   and uploads to PyPI through trusted publishing.
+4. Update the pinned SHA in `README.md`, `examples/github-action-template.yml`
+   and the contract workflow.
 
-Changes to release tags, version numbers and installation pins belong in a
-separately validated release. Existing tags and evidence remain reproducible.
+PyPI trusted publishing needs a one-time setup on pypi.org: add a pending
+publisher for project `workflow-privilege-check`, owner `adi271213`, repository
+`workflow-privilege-check`, workflow `publish.yml`, environment `pypi`.
 
-Source distributions include the scripts, test fixtures and bundled dependency
-needed to run the same validator after extraction. The installed wheel contains
-the CLI package; it does not install the GitHub Action into site-packages.
+Tags are never moved or deleted after publication.
 
-## Repository rules
+## Feedback
 
-`main` requires a pull request, resolved review threads and up-to-date Python
-3.11 through 3.14 CI from GitHub Actions. The rules block force pushes and deletion,
-with no bypass actors. The required approval count is currently zero because this
-repository has one maintainer. Requiring a PR does not claim independent review.
+If you've tried the check on a repository, the *Trial feedback* issue template
+is the quickest way to say what was useful, what was noise and what it missed.
 
-For `v*` tags, creation is limited to the release owner's account. Separate rules
-block updates and deletion without a bypass, including for the owner. Repository
-administrators can still edit the rules; these settings protect the release
-process and are not a guarantee against an administrator changing policy.
-See the [active rules](https://github.com/adi271213/workflow-privilege-check/rules).
+## Pull requests
+
+Describe the problem, the new behaviour and the checks you ran. Include a small
+public or synthetic example for bugs. Don't include credentials or private logs.
+Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
+
+`main` is protected: changes go through a pull request with passing CI on all
+four Python versions.

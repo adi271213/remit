@@ -1,9 +1,7 @@
-# Advisory workflow-privilege review on pull requests.
-# The steps below check out the base and fetch the head as data.
-# PRs can edit this calling workflow; keep normal workflow review and fork approvals.
-# Pin the reviewed Action to its evaluated full commit SHA.
-# Advisory pilot: keep this job outside required merge checks.
-name: Workflow privilege review (advisory)
+# Reports workflow privilege changes in pull requests (advisory).
+# Checks out the base commit and fetches the PR head as data; nothing from the PR runs.
+# Copy to .github/workflows/ and keep it out of required status checks.
+name: Workflow privilege review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -40,49 +38,8 @@ jobs:
             echo '::error::The fetched PR head does not match this event. Retry the latest PR revision after its pull ref updates; keep this equality check.'
             exit 1
           fi
-      - name: Report configured changes (advisory)
-        id: privilege
+      - name: Report privilege changes
+        # Pin to a reviewed full commit SHA; tags can move.
         uses: adi271213/workflow-privilege-check@ff12d9b482a55777815dd5a1391e058986259320 # v0.0.4
         with:
           mode: advisory
-      - name: Explain the result
-        if: always()
-        env:
-          STEP_OUTCOME: ${{ steps.privilege.outcome }}
-          ANALYSIS: ${{ steps.privilege.outputs.analysis-status }}
-          REVIEW: ${{ steps.privilege.outputs.review-status }}
-          FINDINGS: ${{ steps.privilege.outputs.finding-count }}
-          ANALYSIS_EXIT: ${{ steps.privilege.outputs.analysis-exit-code }}
-          REPORT: ${{ steps.privilege.outputs.report-path }}
-          SUMMARY: ${{ steps.privilege.outputs.summary-path }}
-          BASE: ${{ steps.privilege.outputs.base-sha }}
-          HEAD: ${{ steps.privilege.outputs.head-sha }}
-        run: |
-          if [[ "$STEP_OUTCOME" != success ]]; then
-            echo '::error::The Action did not finish reporting. No clean analysis was established; inspect the failed step.'
-            exit 1
-          fi
-          printf 'Analysis: %s; review: %s; findings: %s; analysis exit: %s\n' "$ANALYSIS" "$REVIEW" "$FINDINGS" "$ANALYSIS_EXIT"
-          case "$ANALYSIS/$REVIEW" in
-            complete/none) echo '::notice::No supported configured privilege expansions detected. This is not approval to merge.' ;;
-            complete/suggested|incomplete/suggested|error/suggested) echo '::notice::Human review suggested for the reported configured changes. Read the summary, including any analysis limitations.' ;;
-            incomplete/unknown) echo '::warning::Analysis is incomplete. This is not a clean result; review the summary and missing context.' ;;
-            error/unknown) echo '::warning::Analysis failed. This is not a clean result; review the summary and logs.' ;;
-            *) echo '::error::Unexpected or missing Action outputs. No clean result was established.'; exit 1 ;;
-          esac
-          python3 -I - <<'PYCODE'
-          import json, os
-          from pathlib import Path
-          report = json.loads(Path(os.environ['REPORT']).read_text())
-          assert report['analysis'] == os.environ['ANALYSIS']
-          assert report['action']['reviewStatus'] == os.environ['REVIEW']
-          assert str(len(report['findings'])) == os.environ['FINDINGS']
-          assert str(report['action']['analysisExitCode']) == os.environ['ANALYSIS_EXIT']
-          assert (report.get('base') or '') == os.environ['BASE']
-          assert (report.get('head') or '') == os.environ['HEAD']
-          assert Path(os.environ['SUMMARY']).is_file()
-          print('WPC_PILOT_RESULT=' + json.dumps({'analysis': os.environ['ANALYSIS'],
-              'review': os.environ['REVIEW'], 'findings': int(os.environ['FINDINGS']),
-              'analysisExit': int(os.environ['ANALYSIS_EXIT']), 'base': os.environ['BASE'],
-              'head': os.environ['HEAD'], 'reportExists': True, 'summaryExists': True}))
-          PYCODE
