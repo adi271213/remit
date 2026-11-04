@@ -72,7 +72,7 @@ The template checks out the base commit, fetches the PR head without checking it
 out, and runs the Action pinned to a full commit SHA:
 
 ```yaml
-- uses: adi271213/remit@922ea15d40d82757810f030468f9b9abb7a8b125 # v1
+- uses: adi271213/remit@219cac5651252d8e3159ceaee09665cf429805df # v1
   with:
     mode: advisory
 ```
@@ -170,9 +170,10 @@ default instead, pass it in:
   is treated as a new file and can produce findings for unchanged settings.
 - Input limits: 200 workflow files and 4 MiB per commit; per file, 256 KiB and
   60,000 YAML tokens (a very dense file can reach the token limit first).
-- WF010 and WF011 match pull request expressions written directly in a step's
-  `ref`, `repository` or script line. A reference passed through an environment
-  variable or step output first is not followed.
+- WF010 and WF011 follow pull request references through environment variables,
+  `$GITHUB_ENV`, step and job outputs, and action inputs within the repository.
+  Values computed in other ways (a script that builds a ref from pieces, files
+  passed between jobs) are not traced.
 
 </details>
 
