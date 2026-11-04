@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 1.0.0 — 2026-11-04
+## Version 1 — 2026-11-04
 
 First public release.
 
@@ -26,6 +26,3 @@ First public release.
 - **Validation:** the test suite on Python 3.11–3.14, an end-to-end Action run
   with networking disabled, a hosted contract of 17 cases in both modes, a
   replay of 74 historical public PRs, and a reproducible comparison with zizmor.
-
-Tags named `v0.x` in this repository are earlier development snapshots and are
-not supported.
