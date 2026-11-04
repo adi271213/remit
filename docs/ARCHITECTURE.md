@@ -7,7 +7,7 @@
 | `scripts/run-action.sh` | Action entry point. Starts the controller with `python3 -I` so nothing is imported from the checked-out repository or `PYTHONPATH`. |
 | `scripts/action_runner.py` | Stdlib-only controller. Verifies the bundled PyYAML against its SHA-256 manifest, runs the scanner in a child process with a 90 s timeout, checks the report is consistent with the exit code, and publishes outputs and the job summary. Any setup failure still produces an explicit `error` report. Findings become line annotations; all repository-controlled text in commands is escaped, and the report is printed between `::stop-commands::` markers. |
 | `scripts/action_entry.py` | Resolves base/head SHAs from inputs or the PR event and calls the CLI. |
-| `src/remit/cli.py` | Argument parsing, report output, exit codes. |
+| `src/remit/cli.py` | The `scan` and `audit` commands: argument parsing, report output, exit codes. |
 | `src/remit/sources.py` | Reads workflow files from a directory or from Git objects, with size limits. |
 | `src/remit/scan.py` | YAML parsing, rename detection, WF001–WF004 and WF009–WF011, and assembly of the report. |
 | `src/remit/flows.py` | What code a job runs: third-party actions and fetches of pull request content, followed into local composite actions and reusable workflows. |
@@ -85,5 +85,11 @@ action               (Action only) mode, reviewStatus, analysisExitCode
 ```
 
 A diagnostic in one file or job doesn't hide findings established elsewhere.
+In audit mode (`remit audit`), the comparison runs against an empty base and
+keeps only WF010 and WF011; `mode` is `audit` and `base` is null. Only
+diagnostics that can hide those rules (unreadable workflows or triggers, local
+code that couldn't be followed) are kept. Local-code diagnostics carry
+`area: local-code`.
+
 `analysis` is `error` if any diagnostic is an error, `incomplete` if any is
 incomplete, otherwise `complete`.

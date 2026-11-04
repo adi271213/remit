@@ -64,7 +64,8 @@ def sarif(report: dict) -> dict:
         "runs": [{
             "tool": {"driver": {"name": "remit", "version": __version__,
                                 "informationUri": INFORMATION_URI, "rules": rules}},
-            "automationDetails": {"id": "remit/"},
+            # Separate categories, so audit and pull request alerts don't close each other.
+            "automationDetails": {"id": "remit-audit/" if report.get("mode") == "audit" else "remit/"},
             "invocations": [{"executionSuccessful": report["analysis"] == "complete",
                              "toolExecutionNotifications": notifications}],
             "results": results,
