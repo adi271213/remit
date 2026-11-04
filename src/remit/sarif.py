@@ -5,7 +5,7 @@ import json
 from . import __version__
 from .report import REVIEW_GUIDANCE
 
-INFORMATION_URI = "https://github.com/adi271213/workflow-privilege-check"
+INFORMATION_URI = "https://github.com/adi271213/remit"
 RULES = {
     "WF001": ("token-permission-increase", "A job's token permission scope increases."),
     "WF002": ("default-token-permissions", "A job starts relying on, or replaces, the repository's default token "
@@ -57,9 +57,9 @@ def sarif(report: dict) -> dict:
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
         "version": "2.1.0",
         "runs": [{
-            "tool": {"driver": {"name": "workflow-privilege-check", "version": __version__,
+            "tool": {"driver": {"name": "remit", "version": __version__,
                                 "informationUri": INFORMATION_URI, "rules": rules}},
-            "automationDetails": {"id": "workflow-privilege-check/"},
+            "automationDetails": {"id": "remit/"},
             "invocations": [{"executionSuccessful": report["analysis"] == "complete",
                              "toolExecutionNotifications": notifications}],
             "results": results,

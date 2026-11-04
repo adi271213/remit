@@ -1,6 +1,6 @@
 # Publishes the CLI package to PyPI when a GitHub release is published.
 # One-time setup: add this repository as a trusted publisher for the
-# workflow-privilege-check project on PyPI (workflow: publish.yml, environment: pypi).
+# remit project on PyPI (workflow: publish.yml, environment: pypi).
 name: Publish to PyPI
 on:
   release:
@@ -38,7 +38,7 @@ jobs:
           python -I -m pip --isolated install --disable-pip-version-check --only-binary=:all: -r requirements.txt
           python -I -m pip --isolated install --disable-pip-version-check --no-deps dist/*.whl
           cd "$RUNNER_TEMP"
-          workflow-privilege-check scan --dirs "$GITHUB_WORKSPACE/examples/base" "$GITHUB_WORKSPACE/examples/head" --format json > report.json
+          remit scan --dirs "$GITHUB_WORKSPACE/examples/base" "$GITHUB_WORKSPACE/examples/head" --format json > report.json
           python -c 'import json; r = json.load(open("report.json")); assert r["analysis"] == "complete" and r["findings"], r'
       - name: Upload distributions
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -53,7 +53,7 @@ jobs:
     timeout-minutes: 5
     environment:
       name: pypi
-      url: https://pypi.org/p/workflow-privilege-check
+      url: https://pypi.org/p/remit
     permissions:
       id-token: write
     steps:

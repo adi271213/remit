@@ -7,9 +7,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from privilege_check.report import markdown
-from privilege_check.scan import compare, parse
-from privilege_check.sources import Snapshot
+from remit.report import markdown
+from remit.scan import compare, parse
+from remit.sources import Snapshot
 
 WF = ".github/workflows/ci.yml"
 BASE = "on: workflow_dispatch\npermissions: {contents: read}\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps: [{run: echo fixture}]\n"
@@ -104,13 +104,13 @@ class DeltaReport(unittest.TestCase):
         self.assertIn("Job: deploy", text)
 
     def test_error_report_without_commits_does_not_print_none(self):
-        from privilege_check.scan import error_report
+        from remit.scan import error_report
         text = markdown(error_report("Could not read comparison inputs."))
         self.assertIn("Base: unavailable", text)
         self.assertNotIn("None", text)
 
     def test_checked_in_sample_reports_match_current_output(self):
-        from privilege_check.cli import main
+        from remit.cli import main
         import contextlib
         import io
         examples = ROOT / "examples"

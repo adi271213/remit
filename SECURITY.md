@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Report vulnerabilities in this tool privately through
-[GitHub security advisories](https://github.com/adi271213/workflow-privilege-check/security/advisories/new).
+[GitHub security advisories](https://github.com/adi271213/remit/security/advisories/new).
 Include the affected version or commit, a minimal reproduction and the impact.
 Don't include real credentials or private repository content. Use public issues
 for ordinary bugs.

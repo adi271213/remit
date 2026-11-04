@@ -1,6 +1,8 @@
-# Workflow Privilege Check
+# Remit
 
-[![CI](https://github.com/adi271213/workflow-privilege-check/actions/workflows/ci.yml/badge.svg)](https://github.com/adi271213/workflow-privilege-check/actions/workflows/ci.yml)
+**Know when a pull request widens your workflows' authority.**
+
+[![CI](https://github.com/adi271213/remit/actions/workflows/ci.yml/badge.svg)](https://github.com/adi271213/remit/actions/workflows/ci.yml)
 
 A GitHub Action and CLI that compares the GitHub Actions workflows at a pull
 request's base and head commits and reports changes that give workflows more
@@ -74,7 +76,7 @@ fetches the PR head without checking it out, and runs the Action pinned to a
 full commit SHA:
 
 ```yaml
-- uses: adi271213/workflow-privilege-check@4f17fb308a85c118694ae09260700ce98740b531 # v0.1.0
+- uses: adi271213/remit@8d8ce7f1b841d3b232d7216be993ae1cb6399867 # v0.1.0
   with:
     mode: advisory
 ```
@@ -136,9 +138,9 @@ default instead, pass it in:
 ## Command line
 
 ```sh
-pip install workflow-privilege-check   # or, from a clone: pip install -e .
-workflow-privilege-check scan --dirs examples/base examples/head --format markdown
-workflow-privilege-check scan --repo /path/to/repo --base main --head my-branch
+pip install remit   # or, from a clone: pip install -e .
+remit scan --dirs examples/base examples/head --format markdown
+remit scan --repo /path/to/repo --base main --head my-branch
 ```
 
 Output is JSON by default; `--format markdown` and `--format sarif` are also
