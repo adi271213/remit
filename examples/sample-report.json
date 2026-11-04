@@ -57,7 +57,8 @@
     "Trigger filter changes and secret delivery to individual steps are outside coverage.",
     "Trigger review covers selected event names only: discussion, discussion_comment, issue_comment, issues, pull_request_target, workflow_run.",
     "Runner ownership/inventory and environment secret/protection settings are not observed. Standard runner labels follow a documented convention list.",
-    "Only direct static matrix fields resolve runner/environment expressions; unchanged unresolved selections compare symbolically under fixed external context."
+    "Only direct static matrix fields resolve runner/environment expressions; unchanged unresolved selections compare symbolically under fixed external context.",
+    "Runner/environment association comparison covers supported static rows with unchanged individual target sets; it does not trace secret delivery or runtime reachability."
   ],
   "renames": [],
   "review": "suggested",

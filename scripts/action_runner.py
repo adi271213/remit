@@ -6,13 +6,14 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_KEYS = ("analysis-status", "review-status", "finding-count", "analysis-exit-code",
                "report-path", "summary-path", "base-sha", "head-sha")
 
 
-def bootstrap(root, folder):
+def bootstrap(root):
     # Only files from the pinned Action checkout are imported by the child.
     # No venv, package installer, optional binary extension, or network is needed.
     try:
@@ -35,13 +36,13 @@ def bootstrap(root, folder):
                 raise ValueError("Invalid vendored path")
             if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
                 raise ValueError("Vendored hash mismatch")
-    except (OSError, ValueError, KeyError, TypeError, AssertionError) as exc:
+    except (OSError, ValueError, KeyError, TypeError) as exc:
         raise OSError("Bundled dependency verification failed.") from exc
     return Path(sys.executable)
 
 
 def execute(root, folder):
-    python = bootstrap(root, folder)
+    python = bootstrap(root)
     env = {**os.environ, "PRIVILEGE_REPORT": str(folder / "report.json"),
            "PRIVILEGE_SUMMARY": str(folder / "summary.md")}
     return subprocess.run([str(python), "-I", str(root / "scripts/action_entry.py")],
@@ -101,7 +102,6 @@ def run():
                    str(report_path), str(summary_path), report.get("base") or "", report.get("head") or "")))
     # UUID-style delimiter prevents newline injection through runner paths.
     if target := os.environ.get("GITHUB_OUTPUT"):
-        import uuid
         with open(target, "a", encoding="utf-8") as handle:
             for key, value in outputs.items():
                 delimiter = "wpc_" + uuid.uuid4().hex
@@ -118,6 +118,7 @@ def run():
     elif report["findings"]:
         print("::notice title=Workflow privilege review suggested::Configured capability changes require human review; see the job summary.")
     return 0 if mode == "advisory" else code
+
 
 if __name__ == "__main__":
     try:

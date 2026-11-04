@@ -21,6 +21,10 @@ def _text(value):
     return "".join(f"&#{ord(char)};" if char in "\\`*_[]()!|~" else char for char in text)
 
 
+def _identity(value):
+    return f"`{_text(value)}`" if value else "unavailable"
+
+
 def _value(value):
     """Summarize recorded values without dropping full evidence from the JSON."""
     def plain(item):
@@ -46,26 +50,29 @@ def markdown(report: dict) -> str:
         title = "Review suggested"
     else:
         title = "No supported privilege expansions detected"
-    lines = [f"## {title}", "", f"Base: `{_text(report['base'])}`", f"Head: `{_text(report['head'])}`", ""]
-    groups = {}
+    lines = [f"## {title}", "", f"Base: {_identity(report['base'])}", f"Head: {_identity(report['head'])}", ""]
+    # One heading per workflow file, then one table per job (workflow-level first).
+    files = {}
     for item in report["findings"]:
-        groups.setdefault((item["file"], item["job"]), []).append(item)
+        files.setdefault(item["file"], {}).setdefault(item["job"], []).append(item)
     shortened = False
     missing_value = False
-    for (file, job), items in groups.items():
-        lines += ["### " + _text(file), "", "Job: " + _text(job) if job is not None else "Workflow-level change", "",
-                  "| Rule | Before | After | Change |", "|---|---|---|---|"]
-        for item in items:
-            before, short_before = _value(item["before"])
-            after, short_after = _value(item["after"])
-            shortened |= short_before or short_after
-            missing_value |= item["before"] is None or item["after"] is None
-            lines.append("| " + " | ".join((_text(item["rule"]), before, after, _text(item["message"]))) + " |")
-        lines += ["", "Review:", ""]
-        for rule in dict.fromkeys(item["rule"] for item in items):
-            guidance = REVIEW_GUIDANCE.get(rule, "Review the configured change and any analysis limitations.")
-            lines.append("- " + _text(rule) + ": " + guidance)
-        lines.append("")
+    for file, jobs in files.items():
+        lines += ["### " + _text(file), ""]
+        for job, items in jobs.items():
+            lines += ["Job: " + _text(job) if job is not None else "Workflow-level change", "",
+                      "| Rule | Before | After | Change |", "|---|---|---|---|"]
+            for item in items:
+                before, short_before = _value(item["before"])
+                after, short_after = _value(item["after"])
+                shortened |= short_before or short_after
+                missing_value |= item["before"] is None or item["after"] is None
+                lines.append("| " + " | ".join((_text(item["rule"]), before, after, _text(item["message"]))) + " |")
+            lines += ["", "Review:", ""]
+            for rule in dict.fromkeys(item["rule"] for item in items):
+                guidance = REVIEW_GUIDANCE.get(rule, "Review the configured change and any analysis limitations.")
+                lines.append("- " + _text(rule) + ": " + guidance)
+            lines.append("")
     if missing_value:
         lines += ["Not recorded means this finding has no value recorded for that side; it does not establish whether a runtime resource exists.", ""]
     if shortened:

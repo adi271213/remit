@@ -17,7 +17,7 @@ runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
 class OfflineRuntime(unittest.TestCase):
     def test_bundle_verification_needs_no_installer_or_subprocess(self):
         with patch('subprocess.run', side_effect=AssertionError('installer invoked')):
-            self.assertEqual(runner.bootstrap(ROOT, Path('/unused')), Path(sys.executable))
+            self.assertEqual(runner.bootstrap(ROOT), Path(sys.executable))
 
     def test_altered_missing_extra_or_symlinked_bundle_file_fails(self):
         for kind in ('altered', 'missing', 'extra', 'symlink'):
@@ -31,7 +31,7 @@ class OfflineRuntime(unittest.TestCase):
                 elif kind == 'extra': (target / 'yaml/extra.py').write_text('')
                 else:
                     other = root / 'external.py'; shutil.copyfile(path, other); path.unlink(); path.symlink_to(other)
-                with self.assertRaises(OSError): runner.bootstrap(root, root)
+                with self.assertRaises(OSError): runner.bootstrap(root)
 
     def test_isolated_entry_loads_only_bundled_yaml_without_site_packages(self):
         code = "import sys;sys.path.insert(0,sys.argv[1]);import yaml;assert yaml.__version__=='6.0.3';assert not yaml.__with_libyaml__;print(yaml.__file__)"

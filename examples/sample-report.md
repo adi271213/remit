@@ -15,8 +15,6 @@ Review:
 
 - WF003: Check who can cause the new event and which revision supplies the executed code. Review token and secret access.
 
-### .github/workflows/release.yml
-
 Job: publish
 
 | Rule | Before | After | Change |
