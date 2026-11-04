@@ -203,13 +203,16 @@ def _compare_associations(before, after, unresolved):
     if not unresolved["runs-on"] and _runner_targets(before) != _runner_targets(after):
         return [], []
     if any(unresolved.values()):
-        return [], [("incomplete", "Changed runner/environment associations cannot be fully resolved; only direct static matrix fields are supported.")]
+        return [], [("incomplete", "Changed runner/environment associations cannot be fully resolved; "
+                                   "only direct static matrix fields are supported.")]
     old = _runner_targets(before, include_environment=True)
     new = _runner_targets(after, include_environment=True)
     if not any(pair not in old for pair in new):
         return [], []
     return [{"rule": "WF008", "before": {"pairs": old}, "after": {"pairs": new},
-             "message": "New runner/environment pairing introduced while individual target sets stay unchanged. Review the paired runner and environment-scoped settings; actual access and protection policies are not verified."}], []
+             "message": "New runner/environment pairing introduced while individual target sets stay unchanged. "
+                        "Review the paired runner and environment-scoped settings; actual access and protection "
+                        "policies are not verified."}], []
 
 
 def compare_contexts(before, after):
@@ -231,9 +234,11 @@ def compare_contexts(before, after):
                 new_selector = new_selector.get("name")
         if old_unknown or new_unknown:
             if old_selector == new_selector and _matrix(before) == _matrix(after):
-                assumptions.append(f"Unchanged unresolved {field} selector/matrix compares symbolically; external runtime context is assumed fixed and is not observed.")
+                assumptions.append(f"Unchanged unresolved {field} selector/matrix compares symbolically; "
+                                   "external runtime context is assumed fixed and is not observed.")
                 continue
-            diagnostics.append(("incomplete", f"Changed {field} selection cannot be fully resolved; only direct static matrix fields are supported."))
+            diagnostics.append(("incomplete", f"Changed {field} selection cannot be fully resolved; "
+                                              "only direct static matrix fields are supported."))
             if old_selector == new_selector:
                 # A matrix/context edit does not prove that the unchanged
                 # unresolved selector targets a different resource.
@@ -258,9 +263,11 @@ def compare_contexts(before, after):
         if field == "runs-on":
             if not (old_unknown or new_unknown) and not (new["groups"] or set(new["labels"]) - HOSTED_LABELS):
                 continue
-            message = "Runner selection changed to a self-hosted, custom/group, or unresolved context. Review infrastructure access; ownership and execution are not verified."
+            message = ("Runner selection changed to a self-hosted, custom/group, or unresolved context. "
+                       "Review infrastructure access; ownership and execution are not verified.")
         else:
-            message = "Environment selection changed. Review scoped configuration and approval requirements; secret availability and protection policies are not verified."
+            message = ("Environment selection changed. Review scoped configuration and approval requirements; "
+                       "secret availability and protection policies are not verified.")
         findings.append({"rule": rule, "before": old, "after": new, "message": message})
     if not findings and not diagnostics:
         try:

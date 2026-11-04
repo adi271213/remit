@@ -12,8 +12,10 @@ WF = '.github/workflows/ci.yml'
 
 def workflow(runner='ubuntu-latest', environment=None, matrix=None):
     job = {'runs-on': runner, 'steps': [{'run': 'echo fixture'}]}
-    if environment is not None: job['environment'] = environment
-    if matrix is not None: job['strategy'] = {'matrix': matrix}
+    if environment is not None:
+        job['environment'] = environment
+    if matrix is not None:
+        job['strategy'] = {'matrix': matrix}
     return yaml.safe_dump({'on': 'push', 'permissions': {}, 'jobs': {'test': job}}, sort_keys=False)
 
 

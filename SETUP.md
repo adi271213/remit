@@ -22,8 +22,10 @@ The template:
 1. checks out the PR's **base** commit with `persist-credentials: false`;
 2. fetches the PR **head** as Git objects without checking it out, and stops if
    the fetched commit doesn't match the event's head SHA;
-3. runs the Action, pinned to a full commit SHA, in `advisory` mode;
-4. prints a one-line result and checks that the outputs and report agree.
+3. runs the Action, pinned to a full commit SHA, in `advisory` mode.
+
+Findings appear as annotations in the PR's **Files changed** tab (up to 10 per
+run) and in full in the job summary.
 
 Pin the Action to a full commit SHA. Tags are convenient but can be moved.
 
@@ -35,6 +37,8 @@ fail the step, so making it required would not force anyone to review them.
 After the workflow is on your default branch:
 
 1. Open a PR that only edits the README. Expect `complete / none`, 0 findings.
+   (This repository runs the same check on itself; see
+   [`privilege-review.yml`](.github/workflows/privilege-review.yml).)
 2. Open a separate PR that adds this file as
    `.github/workflows/pilot-read-grant.yml`. Expect `complete / suggested` with
    one WF001 finding. Close the PR afterwards without merging.
@@ -97,8 +101,13 @@ check: without it the report could describe a different commit.
 **Fetch fails.** Check the error and the repository's visibility. The template
 fetches without credentials, so this is expected for private repositories.
 
-**Incomplete because inherited token defaults are unknown.** Add a `permissions`
-block to the job or workflow, or set `default-permissions`.
+**WF002 on every new job.** Add a `permissions` block to the workflow or job.
+This is good practice anyway: it limits what the job's token can do.
+
+**WF002 "may exceed that default".** A job that used the repository default now
+declares something above `contents: read` / `packages: read`. Whether that's an
+increase depends on your repository setting; set `default-permissions` to get
+an exact comparison.
 
 Report bugs with a small public or synthetic reproduction. Report
 vulnerabilities privately; see [SECURITY.md](SECURITY.md).

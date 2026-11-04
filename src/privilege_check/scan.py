@@ -27,14 +27,20 @@ REVIEW_TRIGGERS = {
     "discussion", "discussion_comment",
 }
 TOKEN = re.compile(IDENTIFIER)
+# GitHub's "restricted" default, the narrowest default a repository or organization
+# can configure. Explicit permissions at or below it can never exceed the real default.
+MINIMUM_DEFAULT = {**{scope: "none" for scope in SCOPES}, "contents": "read", "packages": "read"}
 LIMITATIONS = [
     "Compares supported configured capabilities, not actual runtime access or PR safety.",
     "Does not inspect executed scripts, remote actions/workflows, cloud trust, or environment guards.",
     "Trigger filter changes and secret delivery to individual steps are outside coverage.",
     "Trigger review covers selected event names only: " + ", ".join(sorted(REVIEW_TRIGGERS)) + ".",
-    "Runner ownership/inventory and environment secret/protection settings are not observed. Standard runner labels follow a documented convention list.",
-    "Only direct static matrix fields resolve runner/environment expressions; unchanged unresolved selections compare symbolically under fixed external context.",
-    "Runner/environment association comparison covers supported static rows with unchanged individual target sets; it does not trace secret delivery or runtime reachability.",
+    "Runner ownership/inventory and environment secret/protection settings are not observed. Standard runner "
+    "labels follow a documented convention list.",
+    "Only direct static matrix fields resolve runner/environment expressions; unchanged unresolved selections "
+    "compare symbolically under fixed external context.",
+    "Runner/environment association comparison covers supported static rows with unchanged individual target "
+    "sets; it does not trace secret delivery or runtime reachability.",
 ]
 
 
@@ -43,6 +49,11 @@ def error_report(reason: str) -> dict:
     return {"schemaVersion": SCHEMA_VERSION, "base": None, "head": None, "analysis": "error",
             "review": "none", "findings": [], "diagnostics": [{"file": "input", "job": None,
             "side": "comparison", "kind": "error", "reason": reason}], "limitations": LIMITATIONS.copy()}
+
+
+MINIMUM_DEFAULT_ASSUMPTION = (
+    "Jobs that previously used the repository's default token permissions were compared with GitHub's most "
+    "restrictive default (contents: read, packages: read); permissions at or below it cannot be increases.")
 
 
 class StrictLoader(yaml.SafeLoader):
@@ -55,7 +66,8 @@ for key, resolvers in StrictLoader.yaml_implicit_resolvers.items():
     StrictLoader.yaml_implicit_resolvers[key] = [
         (tag, regexp) for tag, regexp in resolvers if tag != "tag:yaml.org,2002:bool"
     ]
-StrictLoader.add_implicit_resolver("tag:yaml.org,2002:bool", re.compile(r"^(?:true|false|True|False|TRUE|FALSE)$"), list("tTfF"))
+StrictLoader.add_implicit_resolver("tag:yaml.org,2002:bool",
+                                   re.compile(r"^(?:true|false|True|False|TRUE|FALSE)$"), list("tTfF"))
 
 
 def _mapping(loader, node):
@@ -76,6 +88,10 @@ StrictLoader.add_constructor("tag:yaml.org,2002:map", _mapping)
 
 
 def parse(text: str) -> dict:
+    return _parse(text)[0]
+
+
+def _parse(text: str) -> tuple[dict, "Locations"]:
     if len(text.encode()) > MAX_FILE:
         raise ValueError("Workflow exceeds byte limit.")
     depth = 0
@@ -115,7 +131,80 @@ def parse(text: str) -> dict:
             raise ValueError("Job must be a mapping.")
         if "permissions" in job:
             permissions(job["permissions"])
-    return document
+    return document, Locations(node)
+
+
+class Locations:
+    """1-based source lines for findings, taken from the composed YAML nodes."""
+
+    def __init__(self, root):
+        self.top = _keys(root)
+        jobs = self.top.get("jobs", (None, None))[1]
+        self.jobs = {name: (line, value) for name, (line, value) in _keys(jobs).items()}
+        self.env = self.top.get("env", (None, None))[1]
+
+    def trigger(self, name):
+        on_line, value = self.top.get("on", (None, None))
+        if isinstance(value, yaml.nodes.MappingNode):
+            return _keys(value).get(name, (on_line, None))[0]
+        if isinstance(value, yaml.nodes.SequenceNode):
+            return next((item.start_mark.line + 1 for item in value.value
+                         if isinstance(item, yaml.nodes.ScalarNode) and item.value == name), on_line)
+        return on_line
+
+    def job(self, name, *keys):
+        """Line of the first of `keys` present in the job, else the job's own line."""
+        line, value = self.jobs.get(name, (None, None))
+        fields = _keys(value)
+        return next((fields[key][0] for key in keys if key in fields), line)
+
+    def permission(self, name, scope):
+        """Line of the scope inside the effective permissions block, else the block, else the job."""
+        _, value = self.jobs.get(name, (None, None))
+        block = _keys(value).get("permissions") or self.top.get("permissions")
+        if block is None:
+            return self.job(name)
+        return _keys(block[1]).get(scope, block)[0]
+
+    def secret(self, name, secret):
+        """Line of the first scalar in the job (then workflow env) that references the secret."""
+        line, value = self.jobs.get(name, (None, None))
+        if secret == "*":
+            fields = _keys(value)
+            if isinstance(fields.get("secrets", (None, None))[1], yaml.nodes.ScalarNode):
+                return fields["secrets"][0]
+            pattern = re.compile(r"\bsecrets\b(?!\s*[.\[])", re.IGNORECASE)
+        else:
+            pattern = re.compile(r"\bsecrets\s*(?:\.\s*" + re.escape(secret) + r"(?![A-Za-z0-9_-])|\[\s*'"
+                                 + re.escape(secret) + r"'\s*\])", re.IGNORECASE)
+        for root in (value, self.env):
+            for node in _scalars(root):
+                if "${{" in node.value and pattern.search(node.value):
+                    return node.start_mark.line + 1
+        return line
+
+
+def _keys(node) -> dict:
+    if not isinstance(node, yaml.nodes.MappingNode):
+        return {}
+    return {key.value: (key.start_mark.line + 1, value) for key, value in node.value
+            if isinstance(key, yaml.nodes.ScalarNode)}
+
+
+def _scalars(node):
+    # The graph was already bounded by validate_graph; `seen` skips shared aliases.
+    stack, seen = [node] if node is not None else [], set()
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, yaml.nodes.ScalarNode):
+            yield current
+        elif isinstance(current, yaml.nodes.SequenceNode):
+            stack.extend(reversed(current.value))
+        elif isinstance(current, yaml.nodes.MappingNode):
+            stack.extend(child for pair in reversed(current.value) for child in reversed(pair))
 
 
 def permissions(value: Any) -> dict[str, str]:
@@ -250,8 +339,8 @@ def compare(base: Snapshot, head: Snapshot, defaults=None) -> dict:
         report["diagnostics"].append({"file": path, "side": side, "job": job,
                                       "kind": "error" if error else "incomplete", "reason": reason})
 
-    def finding(rule, path, job, before, after, message):
-        report["findings"].append({"rule": rule, "file": path, "job": job,
+    def finding(rule, path, job, before, after, message, line=None):
+        report["findings"].append({"rule": rule, "file": path, "job": job, "line": line,
                                    "before": before, "after": after, "message": message})
 
     if defaults is not None:
@@ -271,15 +360,19 @@ def compare(base: Snapshot, head: Snapshot, defaults=None) -> dict:
             continue
         report["examinedFiles"].append(path)
         documents = {}
+        lines = None
         for side, text in (("base", base.files.get(path)), ("head", head.files[path])):
             if text is None:
                 documents[side] = {"on": [], "jobs": {}}
                 continue
             try:
-                documents[side] = parse(text)
+                documents[side], located = _parse(text)
+                if side == "head":
+                    lines = located
             except (ValueError, yaml.YAMLError, RecursionError) as exc:
                 # PyYAML exception strings include source lines; never echo them.
-                reason = str(exc) if isinstance(exc, ValueError) and not isinstance(exc, yaml.YAMLError) else "Invalid YAML or unsupported YAML structure."
+                safe = isinstance(exc, ValueError) and not isinstance(exc, yaml.YAMLError)
+                reason = str(exc) if safe else "Invalid YAML or unsupported YAML structure."
                 diagnostic(path, side, reason, error=True)
         if len(documents) != 2:
             continue
@@ -289,14 +382,18 @@ def compare(base: Snapshot, head: Snapshot, defaults=None) -> dict:
             new_triggers = _triggers(after)
             for trigger in sorted((new_triggers - old_triggers) & REVIEW_TRIGGERS):
                 finding("WF003", path, None, None, trigger,
-                        f"Review-sensitive trigger {trigger} introduced. Review who can invoke it and token/secret access.")
+                        f"Review-sensitive trigger {trigger} introduced. "
+                        "Review who can invoke it and token/secret access.",
+                        lines.trigger(trigger))
         except ValueError as exc:
             diagnostic(path, "comparison", str(exc), error=True)
         for name, new_job in sorted(after["jobs"].items()):
             old_job = before["jobs"].get(name)
             changes, issues, assumptions = compare_contexts(old_job, new_job)
+            context_keys = {"WF005": ("runs-on",), "WF007": ("environment",), "WF008": ("environment", "strategy")}
             for change in changes:
-                finding(change["rule"], path, name, change["before"], change["after"], change["message"])
+                finding(change["rule"], path, name, change["before"], change["after"], change["message"],
+                        lines.job(name, *context_keys[change["rule"]]))
             for kind, reason in issues:
                 diagnostic(path, "comparison", reason, job=name, error=kind == "error")
             for assumption in assumptions:
@@ -308,22 +405,44 @@ def compare(base: Snapshot, head: Snapshot, defaults=None) -> dict:
                     values[side] = permissions({}) if job is None else _scope(doc, job, defaults)
                 except ValueError as exc:
                     diagnostic(path, side, str(exc), job=name, error=True)
-            # The same existing job inherits the same external setting on both
-            # sides: D -> D is equal for every fixed possible default map D.
-            # A new job has no old capability ({}), so it cannot take this path.
-            if len(values) == 2 and values["base"] is None and values["head"] is None:
+            old_value, new_value = values.get("base"), values.get("head")
+            if len(values) != 2:
+                pass  # The failing side already has an error diagnostic.
+            elif old_value is None and new_value is None:
+                # The same existing job inherits the same external setting on both
+                # sides: D -> D is equal for every fixed possible default map D.
                 report["inheritedComparisons"].append({"file": path, "job": name})
+            elif new_value is None:
+                # Explicit (or absent) -> inherited default. The default is not visible,
+                # so report the switch itself unless the old map was already maximal.
+                if any(LEVELS[old_value[scope]] < max(LEVELS[x] for x in SCOPES[scope]) for scope in SCOPES):
+                    granted = {scope: level for scope, level in old_value.items() if level != "none"}
+                    finding("WF002", path, name, None if old_job is None else (granted or "none"),
+                            "repository default",
+                            f"{'New job' if old_job is None else 'Job'} {name} uses the repository's default token "
+                            "permissions, which this analysis cannot see. Declare permissions explicitly or supply "
+                            "default-permissions.", lines.job(name))
+            elif old_value is None:
+                # Inherited -> explicit. Only levels above the narrowest possible default
+                # can be increases; usually this is a hardening change and stays quiet.
+                above = {scope: level for scope, level in sorted(new_value.items())
+                         if LEVELS[level] > LEVELS[MINIMUM_DEFAULT[scope]]}
+                if MINIMUM_DEFAULT_ASSUMPTION not in report["assumptions"]:
+                    report["assumptions"].append(MINIMUM_DEFAULT_ASSUMPTION)
+                if above:
+                    scopes = ", ".join(f"{scope}: {level}" for scope, level in above.items())
+                    finding("WF002", path, name, "repository default", above,
+                            f"Job {name} replaces the repository's default token permissions with {scopes}, which "
+                            "may exceed that default. Confirm the job needs them.",
+                            lines.permission(name, next(iter(above))))
             else:
-                for side, value in values.items():
-                    if value is None:
-                        diagnostic(path, side, "Inherited token defaults are unknown; supply trusted explicit defaults.", job=name)
-            if values.get("base") is not None and values.get("head") is not None:
                 for scope in sorted(SCOPES):
-                    old, new = values["base"][scope], values["head"][scope]
+                    old, new = old_value[scope], new_value[scope]
                     if LEVELS[new] > LEVELS[old]:
                         capability = "request an OIDC identity token" if scope == "id-token" else f"use {scope}: {new}"
                         finding("WF001", path, name, {scope: old}, {scope: new},
-                                f"Job {name} is newly configured to {capability}. Runtime access is not verified.")
+                                f"Job {name} is newly configured to {capability}. Runtime access is not verified.",
+                                lines.permission(name, scope))
             refs = {}
             for side, doc, job in (("base", before, old_job), ("head", after, new_job)):
                 try:
@@ -341,10 +460,13 @@ def compare(base: Snapshot, head: Snapshot, defaults=None) -> dict:
                 for secret in sorted(added):
                     display = "all available secrets" if secret == "*" else secret
                     finding("WF004", path, name, None, display,
-                            f"Job {name} adds a reference or forwarding path to {display}. Availability and actual access are not verified.")
+                            f"Job {name} adds a reference or forwarding path to {display}. "
+                            "Availability and actual access are not verified.",
+                            lines.secret(name, secret))
     if report["inheritedComparisons"]:
         report["assumptions"].append(
-            "Unchanged inherited permissions for matched job IDs compare symbolically, assuming external repository/organization defaults stay fixed. Their values and runtime restrictions are not observed.")
+            "Unchanged inherited permissions for matched job IDs compare symbolically, assuming external "
+            "repository/organization defaults stay fixed. Their values and runtime restrictions are not observed.")
     if report["diagnostics"]:
         report["analysis"] = "error" if any(d["kind"] == "error" for d in report["diagnostics"]) else "incomplete"
     if report["findings"]:

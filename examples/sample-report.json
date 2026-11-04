@@ -13,6 +13,7 @@
       "before": null,
       "file": ".github/workflows/release.yml",
       "job": null,
+      "line": 2,
       "message": "Review-sensitive trigger pull_request_target introduced. Review who can invoke it and token/secret access.",
       "rule": "WF003"
     },
@@ -25,6 +26,7 @@
       },
       "file": ".github/workflows/release.yml",
       "job": "publish",
+      "line": 9,
       "message": "Job publish is newly configured to request an OIDC identity token. Runtime access is not verified.",
       "rule": "WF001"
     },
@@ -37,6 +39,7 @@
       },
       "file": ".github/workflows/release.yml",
       "job": "publish",
+      "line": 8,
       "message": "Job publish is newly configured to use packages: write. Runtime access is not verified.",
       "rule": "WF001"
     },
@@ -45,6 +48,7 @@
       "before": null,
       "file": ".github/workflows/release.yml",
       "job": "publish",
+      "line": 11,
       "message": "Job publish adds a reference or forwarding path to PUBLISH_TOKEN. Availability and actual access are not verified.",
       "rule": "WF004"
     }

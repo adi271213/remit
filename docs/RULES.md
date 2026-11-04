@@ -1,6 +1,7 @@
 # Rules
 
-Rules compare each changed workflow file between the base and head commits. Jobs
+Each finding records the `line` in the head file that introduced it, used for
+pull request annotations. Rules compare each changed workflow file between the base and head commits. Jobs
 are matched by job ID; a job that exists only in the head is compared against an
 empty job. Unchanged files are skipped. A file renamed without content changes is
 recorded in `renames` and skipped.
@@ -25,8 +26,28 @@ invalid level is an error rather than being guessed at.
 
 When neither side declares permissions and no default is supplied, the same job
 is assumed to inherit the same default on both sides, and the comparison is
-listed under `inheritedComparisons`. Any other comparison involving an unknown
-default (for example a new job without `permissions`) is `incomplete`.
+listed under `inheritedComparisons`. Other comparisons involving an unknown
+default are covered by WF002.
+
+## WF002: inherited default permissions
+
+The repository's default token permissions aren't visible to the tool. WF002
+covers the changes that cross that boundary when no `default-permissions` is
+supplied:
+
+- **To the default.** A new job, or a job that used to declare permissions,
+  now has no `permissions` block at job or workflow level. The default could be
+  broader than before, so the finding asks for an explicit block. `before` is
+  the old explicit grants (`none` if it granted nothing, empty for a new job);
+  `after` is `repository default`. Switching from `write-all` is quiet, since
+  nothing can exceed it.
+- **From the default.** A job that used the default now declares permissions.
+  The narrowest default GitHub allows is `contents: read` and `packages: read`,
+  so declared levels at or below that can't be an increase and stay quiet. That
+  covers the usual hardening change. Anything above it is reported as "may
+  exceed the default", and the comparison is listed in `assumptions`.
+
+Supplying `default-permissions` replaces WF002 with ordinary WF001 comparisons.
 
 ## WF003: review-sensitive trigger added
 
