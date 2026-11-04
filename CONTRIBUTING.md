@@ -69,6 +69,11 @@ publisher for project `workflow-privilege-check`, owner `adi271213`, repository
 
 Tags are never moved or deleted after publication.
 
+## Feedback
+
+If you've tried the check on a repository, the *Trial feedback* issue template
+is the quickest way to say what was useful, what was noise and what it missed.
+
 ## Pull requests
 
 Describe the problem, the new behaviour and the checks you ran. Include a small
