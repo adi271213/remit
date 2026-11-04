@@ -1,24 +1,23 @@
-# Bundled Action dependency
+# Bundled PyYAML
 
-The Action uses the unmodified pure-Python files of PyYAML 6.0.3 in `pyyaml/`.
-Its MIT license and per-file SHA-256 manifest are included. The manifest records
-the published upstream wheel URL and verified SHA-256. The optional compiled
-extension is omitted; the scanner already uses Python SafeLoader subclasses.
+`pyyaml/` contains the unmodified pure-Python files of PyYAML 6.0.3 and its MIT
+license. The optional C extension is left out. `pyyaml/manifest.json` records the
+source wheel URL, its SHA-256, and a SHA-256 for each bundled file.
 
-The pinned Action verifies these files before starting the isolated scanner. It
-creates no venv and invokes no pip, dependency index, installer or download.
-Python 3.11+ and Git must exist on the runner. Downloading the Action and fetching
-Git objects are installation operations and can still require network access.
+The Action checks every file against the manifest before starting the scanner,
+so it never needs pip, a virtualenv or network access at runtime. The CLI
+installed with pip uses the regular PyYAML package instead.
 
-To reproduce the current bundle, run `python scripts/vendor_pyyaml.py`. It fetches
-only the wheel URL recorded in `pyyaml/manifest.json` and checks the recorded
-SHA-256 before writing files. It does not select a release or trust a new checksum
-from live package metadata.
+## Updating
 
-For an update, review the upstream release and wheel digest, then change the
-manifest's `version`, `sourceWheel`, `sourceURL` and `sourceSha256` together. Update
-the runtime's expected dependency version, package/test dependencies and their
-hash pins. Regenerate the bundle and review the resulting files, license and
-manifest. Run the full Python matrix and disconnected-network smoke test before
-publishing. Never copy a newly downloaded checksum into the manifest merely to
-make verification pass.
+1. Review the new PyYAML release and the wheel's published SHA-256.
+2. In `pyyaml/manifest.json`, update `version`, `sourceWheel`, `sourceURL` and
+   `sourceSha256`.
+3. Run `python scripts/vendor_pyyaml.py`. It downloads only that URL, checks the
+   digest, and rewrites the bundle and per-file hashes.
+4. Update the expected version in `scripts/action_runner.py`, the dependency in
+   `pyproject.toml`, and the hashes in `requirements.txt`.
+5. Review the diff and run the full test matrix and the offline smoke test.
+
+Never copy a newly downloaded checksum into the manifest just to make
+verification pass.

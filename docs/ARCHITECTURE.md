@@ -1,56 +1,83 @@
-# Architecture and trust boundaries
+# Architecture
 
-The scanner compares supported configuration in two snapshots. It does not
-execute a workflow or determine whether a PR is safe.
+## Modules
 
-## Data flow
+| Path | Responsibility |
+|---|---|
+| `scripts/run-action.sh` | Action entry point. Starts the controller with `python3 -I` so nothing is imported from the checked-out repository or `PYTHONPATH`. |
+| `scripts/action_runner.py` | Stdlib-only controller. Verifies the bundled PyYAML against its SHA-256 manifest, runs the scanner in a child process with a 90 s timeout, checks the report is consistent with the exit code, and publishes outputs and the job summary. Any setup failure still produces an explicit `error` report. |
+| `scripts/action_entry.py` | Resolves base/head SHAs from inputs or the PR event and calls the CLI. |
+| `src/privilege_check/cli.py` | Argument parsing, report output, exit codes. |
+| `src/privilege_check/sources.py` | Reads workflow files from a directory or from Git objects, with size limits. |
+| `src/privilege_check/scan.py` | YAML parsing, rename detection, WF001/WF003/WF004, and assembly of the report. |
+| `src/privilege_check/contexts.py` | WF005/WF007/WF008: runner and environment normalisation and matrix expansion. |
+| `src/privilege_check/expressions.py` | Identifier grammar shared by secret and matrix parsing. |
+| `src/privilege_check/yaml_limits.py` | Bounds the composed YAML graph before any Python objects are built. |
+| `src/privilege_check/report.py` | Markdown rendering with all repository-controlled text escaped. |
 
-1. `scripts/run-action.sh` starts the controller with isolated Python imports.
-   `scripts/action_runner.py` verifies the bundled PyYAML files, creates job-local
-   report paths and runs the scanner in a child process with a timeout.
-2. `scripts/action_entry.py` reads explicit commit SHAs or PR event metadata and
-   invokes the CLI. Default-permission assertions come from the trusted caller.
-3. `src/privilege_check/sources.py` reads bounded workflow files from directories
-   or local Git objects. Git reads ignore replacement refs and caller `GIT_*`
-   redirections. Missing objects are errors; this layer does not fetch them.
-4. `scan.py` skips unchanged files, matches exact-content renames, parses changed
-   YAML and compares supported fields per job. `yaml_limits.py` bounds the whole
-   composed graph before construction. `contexts.py` handles runner/environment
-   normalization and bounded static matrices. The association rule
-   retains runner/environment bindings from each row when comparing unchanged
-   individual target sets.
-   `expressions.py` shares the supported identifier grammar between secret
-   reference scanning and direct matrix selection; neither evaluates expressions.
-5. `report.py` escapes repository-controlled text for Markdown. The CLI emits
-   JSON or Markdown. The Action controller publishes explicit analysis/review
-   outcomes, report paths and a job summary.
+## Trust boundary
 
-## Trusted code and proposed data
+The copy-ready workflow checks out the PR's base commit and fetches the head
+only as Git objects. The Action is pinned by SHA and loaded from GitHub, not from
+the PR. Workflow files from the head are parsed as data; no script, action or
+Python module from the PR is loaded.
 
-The copy-ready workflow checks out the PR base, fetches the proposed head without
-checking it out, verifies it matches the event and invokes a full-SHA-pinned
-Action. Workflow blobs are data. No script, local action or Python module from
-the proposed head is loaded by the scanner.
+The calling workflow itself lives in the repository and can be edited by a PR.
+Pinning the scanner doesn't change that, so normal workflow review and fork
+approval settings still matter.
 
-The calling workflow itself can be edited in a PR. A pinned scanner does not make
-that workflow an unbypassable boundary. Keep normal workflow review, fork approvals
-and read-only permissions. The public setup is for Linux GitHub-hosted runners;
-private authentication and arbitrary self-hosted installations need separate
-validation.
+### Reading Git objects
 
-## Outcome contract
+`sources.git_snapshot` runs `git rev-parse`, `ls-tree` and `cat-file` against
+the given repository. It:
 
-`complete` means the supported comparison finished under its disclosed
-assumptions. Unchanged inherited defaults and unresolved selectors can compare
-symbolically when their external context is assumed fixed. `complete` does not
-mean that every execution path or external setting was inspected.
+- drops every caller `GIT_*` environment variable, and ignores system and global
+  Git config, replacement refs and `core.fsmonitor`;
+- disables prompts and lazy fetching, so missing objects are an error rather than
+  a network request;
+- requires refs to resolve to a single full commit SHA;
+- rejects symlinks and submodules under `.github/workflows`;
+- applies a 15-second timeout to each Git call.
 
-`incomplete` records missing context. `error` records invalid/unsupported input or
-an execution failure. Known findings remain available where their comparison was
-established. The Action reports `none` only for complete analysis without findings;
-it reports `unknown` for unresolved analysis without findings.
+Git error output is never copied into the report.
 
-Findings suggest human review in both modes. `require-complete` fails unresolved
-analysis; `advisory` reports it without failing. Neither mode enforces approval of
-findings. Missing outputs or publication failures are execution failures, not
-clean results. See [outcomes](../README.md#outcomes) and [coverage policies](../README.md#coverage).
+## Parsing
+
+YAML is loaded with a `SafeLoader` subclass that:
+
+- keeps `on`, `yes`, `no` etc. as strings, so only `true`/`false` are booleans;
+- rejects duplicate keys, non-string keys and merge keys (`<<`).
+
+Before parsing, a token pass enforces at most 60,000 tokens, 500 aliases and
+nesting depth 50. After composition, `yaml_limits.validate_graph` charges every
+alias its full expanded cost and rejects the document if it exceeds 200,000
+nodes, 4 MiB of scalar text or depth 50, or contains a cycle. This stops "billion
+laughs" style inputs before any rule walks the data.
+
+Input limits: 200 workflow files and 4 MiB per snapshot, 256 KiB per file,
+strict UTF-8 (a BOM is allowed).
+
+Errors from PyYAML include source text, so they're replaced with a generic
+message in the report.
+
+## Report
+
+```text
+schemaVersion        report format version, independent of the package version
+base, head           commit SHAs, or directory content hashes for --dirs
+analysis             complete | incomplete | error
+review               none | suggested
+findings[]           rule, file, job, before, after, message
+diagnostics[]        file, side, job, kind (incomplete | error), reason
+renames[]            exact-content renames that were skipped
+examinedFiles[]      files that changed and were compared
+assumptions[]        symbolic comparisons made under a "context is unchanged" assumption
+inheritedComparisons jobs compared under an unchanged inherited default
+defaultPermissions   the supplied default map, if any
+limitations[]        fixed list of what the analysis does not cover
+action               (Action only) mode, reviewStatus, analysisExitCode
+```
+
+A diagnostic in one file or job doesn't hide findings established elsewhere.
+`analysis` is `error` if any diagnostic is an error, `incomplete` if any is
+incomplete, otherwise `complete`.
