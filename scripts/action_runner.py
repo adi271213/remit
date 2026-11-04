@@ -11,7 +11,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 MAX_ANNOTATIONS = 10  # GitHub displays at most 10 warning annotations per step.
 OUTPUT_KEYS = ("analysis-status", "review-status", "finding-count", "analysis-exit-code",
-               "report-path", "summary-path", "base-sha", "head-sha")
+               "report-path", "summary-path", "base-sha", "head-sha", "sarif-path")
 
 
 def bootstrap(root):
@@ -45,7 +45,7 @@ def bootstrap(root):
 def execute(root, folder):
     python = bootstrap(root)
     env = {**os.environ, "PRIVILEGE_REPORT": str(folder / "report.json"),
-           "PRIVILEGE_SUMMARY": str(folder / "summary.md")}
+           "PRIVILEGE_SUMMARY": str(folder / "summary.md"), "PRIVILEGE_SARIF": str(folder / "report.sarif")}
     return subprocess.run([str(python), "-I", str(root / "scripts/action_entry.py")],
                           env=env, timeout=90).returncode
 
@@ -95,6 +95,7 @@ def run():
     mode = os.environ.get("PRIVILEGE_MODE", "require-complete")
     folder = Path(tempfile.mkdtemp(prefix="workflow-privilege-report.", dir=os.environ.get("RUNNER_TEMP")))
     report_path, summary_path = folder / "report.json", folder / "summary.md"
+    sarif_path = folder / "report.sarif"
     fallback = None
     if mode not in ("advisory", "require-complete"):
         fallback = "Invalid Action mode; use advisory or require-complete."
@@ -133,7 +134,8 @@ def run():
                 "A successful Action step is not approval to merge or evidence that the PR is safe.\n")
     summary_path.write_text(summary, encoding="utf-8")
     outputs = dict(zip(OUTPUT_KEYS, (report["analysis"], review, str(len(report["findings"])), str(code),
-                   str(report_path), str(summary_path), report.get("base") or "", report.get("head") or "")))
+                   str(report_path), str(summary_path), report.get("base") or "", report.get("head") or "",
+                   str(sarif_path) if fallback is None and sarif_path.is_file() else "")))
     # UUID-style delimiter prevents newline injection through runner paths.
     if target := os.environ.get("GITHUB_OUTPUT"):
         with open(target, "a", encoding="utf-8") as handle:

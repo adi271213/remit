@@ -14,6 +14,7 @@
 | `src/privilege_check/expressions.py` | Identifier grammar shared by secret and matrix parsing. |
 | `src/privilege_check/yaml_limits.py` | Bounds the composed YAML graph before any Python objects are built. |
 | `src/privilege_check/report.py` | Markdown rendering with all repository-controlled text escaped. |
+| `src/privilege_check/sarif.py` | SARIF 2.1.0 output with rule metadata and line-independent fingerprints. |
 
 ## Trust boundary
 

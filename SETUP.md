@@ -77,9 +77,30 @@ jobs:
 | `report-path` | JSON report in `$RUNNER_TEMP` |
 | `summary-path` | Markdown summary in `$RUNNER_TEMP` |
 | `base-sha`, `head-sha` | Resolved commits; empty if they couldn't be resolved |
+| `sarif-path` | SARIF 2.1.0 report in `$RUNNER_TEMP`; empty if the analysis didn't run |
 
 The Markdown summary is also written to the job summary. The Action posts no PR
 comments and sends nothing to external services.
+
+## Code scanning (optional)
+
+If your repository uses GitHub code scanning, you can also send findings to the
+**Security** tab. Give the step an `id`, add `security-events: write` to the
+job's permissions, and add:
+
+```yaml
+      - name: Upload to code scanning
+        if: always() && steps.privilege.outputs.sarif-path != ''
+        uses: github/codeql-action/upload-sarif@1fc58d04a4d4374f921bdac573c3811c240f9c26 # v4.39.2
+        with:
+          sarif_file: ${{ steps.privilege.outputs.sarif-path }}
+          category: workflow-privilege-check
+```
+
+Pull requests from forks get a read-only token, so the upload step fails for
+them; the annotations and job summary still work. Each alert carries a stable
+fingerprint, so moving a line doesn't create a new alert. The CLI writes the
+same format with `--format sarif` or `--sarif FILE`.
 
 ## Reading the result
 

@@ -107,6 +107,8 @@ def main():
                 assert outputs["analysis-exit-code"] == str(code)
                 assert {f["rule"] for f in report["findings"]} == rules and len(report["findings"]) == count
                 assert (outputs["base-sha"], outputs["head-sha"]) == (base, head)
+                sarif = json.loads(Path(outputs["sarif-path"]).read_text())
+                assert len(sarif["runs"][0]["results"]) == count
                 summary = Path(env["GITHUB_STEP_SUMMARY"]).read_text()
                 assert "not approval to merge" in summary
                 if case in ("association", "hyphen-association"):
