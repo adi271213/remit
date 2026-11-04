@@ -42,7 +42,7 @@ jobs:
       - name: Run pinned Action mode
         id: result
         continue-on-error: true
-        uses: adi271213/remit@922ea15d40d82757810f030468f9b9abb7a8b125 # v1
+        uses: adi271213/remit@219cac5651252d8e3159ceaee09665cf429805df # v1
         with:
           mode: ${{ matrix.mode }}
           base: ${{ steps.refs.outputs.base }}
