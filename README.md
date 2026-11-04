@@ -18,6 +18,7 @@ head of every pull request and puts each of those changes on the line that
 introduced it, so reviewers can't miss them.
 
 - **Only what changed.** Unchanged configuration stays quiet, so ordinary PRs get no noise.
+- **Catches the pwn request.** Flags privileged workflows that start running pull request code, including the time-of-check to time-of-use trap after a label or comment approval.
 - **Right on the diff.** Findings appear as annotations in the PR's *Files changed* tab.
 - **Safe on untrusted PRs.** The PR is read as data and never executed; the analysis makes no network calls.
 - **Nothing to install.** A pinned Action with a hash-verified bundled parser; no secrets, `contents: read` only.
@@ -92,6 +93,11 @@ covers inputs, outputs, code scanning and troubleshooting.
 | WF007 | A job's deployment environment is added, removed or changed |
 | WF008 | A matrix job pairs a runner with a different environment while the overall runner and environment sets stay the same |
 | WF009 | Third-party code (an action or reusable workflow) newly runs in a job with write scopes, OIDC, secrets or an environment |
+| WF010 | A `pull_request_target`, `workflow_run` or `issue_comment` job newly checks out, fetches or downloads pull request content: the "pwn request" |
+| WF011 | An approval-gated privileged job checks out a pull request reference that can change after approval: time-of-check to time-of-use |
+
+Rules follow steps into local composite actions and local reusable workflows, so a
+change inside `.github/actions/` is caught even when no workflow file changed.
 
 [docs/RULES.md](https://github.com/adi271213/remit/blob/main/docs/RULES.md) describes the exact behaviour of each rule.
 
@@ -148,8 +154,9 @@ default instead, pass it in:
 <details>
 <summary><b>Limitations</b></summary>
 
-- Only top-level `.github/workflows/*.yml` and `*.yaml` files are read. Called
-  reusable workflows, actions and scripts are not followed.
+- Workflows are read from `.github/workflows/`, and local composite actions and
+  reusable workflows are followed. Actions and reusable workflows from other
+  repositories, and the contents of scripts, are not analysed.
 - Repository and organization settings are not visible: default token
   permissions, runner inventory, environment protection rules and secrets.
 - WF003 looks at trigger names only. Filter changes on existing triggers
