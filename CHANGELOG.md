@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.1.0 (release date set when tagged)
+## 0.1.0 — 2026-11-04
 
 - **New rule WF002:** a new job, or a job that drops its `permissions` block,
   relying on the repository's default token permissions is now a finding that
