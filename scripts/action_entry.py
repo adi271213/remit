@@ -9,11 +9,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "vendor/pyyaml"))
 from remit.cli import main
+from remit.sources import merge_base
 
 
 def entry():
     base = os.environ.get("PRIVILEGE_BASE", "")
     head = os.environ.get("PRIVILEGE_HEAD", "")
+    base_from_event = not base
     if not base or not head:
         event_path = os.environ.get("GITHUB_EVENT_PATH")
         if not event_path:
@@ -31,7 +33,13 @@ def entry():
     if not all(isinstance(value, str) and full_sha.fullmatch(value) for value in (base, head)):
         print("The Action requires full commit SHAs.", file=sys.stderr)
         return 2
-    args = ["scan", "--repo", os.environ.get("PRIVILEGE_REPOSITORY", "."), "--base", base, "--head", head]
+    repository = os.environ.get("PRIVILEGE_REPOSITORY", ".")
+    if base_from_event:
+        # The event's base SHA is the base branch's current tip. Compare from where the
+        # pull request branched instead, as GitHub's Files changed view does, so changes
+        # merged to the base branch since then don't appear reversed as findings.
+        base = merge_base(repository, base, head) or base
+    args = ["scan", "--repo", repository, "--base", base, "--head", head]
     if defaults := os.environ.get("PRIVILEGE_DEFAULTS"):
         args += ["--default-permissions", defaults]
     if output := os.environ.get("PRIVILEGE_REPORT"):

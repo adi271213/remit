@@ -18,7 +18,7 @@ head of every pull request and puts each of those changes on the line that
 introduced it, so reviewers can't miss them.
 
 - **Only what changed.** Unchanged configuration stays quiet, so ordinary PRs get no noise.
-- **Catches the pwn request.** Flags privileged workflows that start running pull request code, including the time-of-check to time-of-use trap after a label or comment approval.
+- **Flags common pwn-request patterns.** Privileged workflows that start checking out, fetching or downloading pull request content, including the time-of-check to time-of-use trap after a label or comment approval.
 - **Right on the diff.** Findings appear as annotations in the PR's *Files changed* tab.
 - **Safe on untrusted PRs.** The PR is read as data and never executed; the analysis makes no network calls.
 - **Nothing to install.** A pinned Action with a hash-verified bundled parser; no secrets, `contents: read` only.
@@ -72,7 +72,7 @@ The template checks out the base commit, fetches the PR head without checking it
 out, and runs the Action pinned to a full commit SHA:
 
 ```yaml
-- uses: adi271213/remit@a33ed90b90d451c9e8a092218d8e000fe64eb2c8 # v1
+- uses: adi271213/remit@922ea15d40d82757810f030468f9b9abb7a8b125 # v1
   with:
     mode: advisory
 ```
@@ -112,8 +112,9 @@ changed environment, or a new action receiving write access.
 On [74 historical public PRs](https://github.com/adi271213/remit/blob/main/benchmarks/README.md),
 Remit reported 69 findings. For 43 of them (62%), zizmor 1.32 (pedantic,
 offline) reported no new finding of a related audit in the same workflow and
-job, including all 8 new secret references. Run zizmor for what is dangerous,
-and Remit for what got wider.
+job, including all 8 new secret references. The PRs were selected and labelled
+by this project and the matching is approximate, so read this as an indication,
+not a benchmark. Run zizmor for what is dangerous, and Remit for what got wider.
 
 ## Results
 
@@ -167,7 +168,11 @@ default instead, pass it in:
 - YAML merge keys (`<<`) and recursive aliases are rejected as errors.
 - A renamed file is matched only if its content is identical; an edited rename
   is treated as a new file and can produce findings for unchanged settings.
-- Input limits: 200 workflow files and 4 MiB per commit, 256 KiB per file.
+- Input limits: 200 workflow files and 4 MiB per commit; per file, 256 KiB and
+  60,000 YAML tokens (a very dense file can reach the token limit first).
+- WF010 and WF011 match pull request expressions written directly in a step's
+  `ref`, `repository` or script line. A reference passed through an environment
+  variable or step output first is not followed.
 
 </details>
 

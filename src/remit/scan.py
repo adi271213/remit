@@ -134,13 +134,11 @@ def _parse(text: str) -> tuple[dict, "Locations"]:
         raise ValueError("Workflow needs an on trigger.")
     if "env" in document and not isinstance(document["env"], dict):
         raise ValueError("Workflow env must be a mapping.")
-    if "permissions" in document:
-        permissions(document["permissions"])
     for job in document["jobs"].values():
         if not isinstance(job, dict):
             raise ValueError("Job must be a mapping.")
-        if "permissions" in job:
-            permissions(job["permissions"])
+    # Permission declarations are validated per job in compare(), so one unknown
+    # scope doesn't hide findings elsewhere in the file.
     return document, Locations(node)
 
 
@@ -559,8 +557,10 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, _audit=False) -> d
                 flows[side] = local.job(path, job, job_node)
                 for reason in dict.fromkeys(local.issues[known:]):
                     diagnostic(path, side, reason, job=name, area="local-code")
-            if "head" not in values or "head" not in refs:
+            if "head" not in refs:
                 continue
+            # Invalid permissions were reported above; the code-flow rules still run.
+            unreadable_permissions = "head" not in values
             granted = _privileges(new_job, new_value, refs["head"][0])
 
             # WF009: third-party code newly running where it can use the job's privileges.
@@ -593,7 +593,9 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, _audit=False) -> d
                 return rule, fetch.kind, " ".join(fetch.ref.split()).casefold(), fetch.file
             old_keys = {keyed(f, base_gate) for f in flows["base"][1]} if base_triggers else set()
             capabilities = list(granted)
-            if new_value is None:
+            if unreadable_permissions:
+                capabilities.append("token permissions that could not be read")
+            elif new_value is None:
                 capabilities.append("the repository's default token permissions")
             capability_text = "; ".join(capabilities) or "a read-only token"
             trigger_text = ", ".join(sorted(head_triggers))
