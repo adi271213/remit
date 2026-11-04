@@ -1,45 +1,43 @@
-# Install Workflow Privilege Check
+# Setup
 
-Use one public repository you maintain that already runs GitHub Actions. Keep
-ordinary review and existing scanners. This tool reports configured changes;
-it does not approve PRs or enforce human review. Leave the job outside required
-merge checks and auto-merge authorization during initial evaluation.
+## Requirements
 
-## Installation
+- A Linux GitHub-hosted runner. `ubuntu-latest` already has Python 3.11+ and Git.
+- A public repository. The template fetches the PR head without stored
+  credentials; private repositories need an authenticated fetch, which the
+  template doesn't cover.
+- No secrets and no write permissions. The job runs with `contents: read`.
 
-Copy [the complete workflow](examples/github-action-template.yml) to
-`.github/workflows/workflow-privilege-review.yml` in your repository. Its Action
-step is already pinned to this evaluated source:
+The Action ships a hash-verified copy of PyYAML (see [vendor/](vendor/README.md)),
+so nothing is installed with pip at runtime.
 
-```text
-adi271213/workflow-privilege-check@ff12d9b482a55777815dd5a1391e058986259320
-```
+## Install
 
-Keep `mode: advisory`, `contents: read`, the trusted-base checkout, exact head
-fetch and result-explanation step. Review the copied workflow before merging it.
-The recipe uses Linux GitHub-hosted runners with Python 3.11+ and Git. It needs
-no repository secrets, cloud credentials, write token, or extra account.
-The verified PyYAML bundle is included; no pip/venv/download runs during analysis.
-Downloading Actions and fetching public commits still require network access.
-Private-repository authentication and arbitrary self-hosted installations are not
-covered by this setup recipe. Do not broaden permissions to force installation.
+1. Copy [`examples/github-action-template.yml`](examples/github-action-template.yml)
+   to `.github/workflows/workflow-privilege-check.yml`.
+2. Review it and merge it through your normal process.
 
-The calling workflow remains editable in PRs. Pinning the scanner does not make
-that calling workflow an unbypassable boundary. Normal fork approval rules apply.
-The 0.0.4 [release checks](docs/RELEASE-0.0.4.md) record the current setup and
-pinned runtime installation tests, including fresh fork PRs. Fork tests cover advisory mode,
-including approval before execution and incomplete/error outcomes; they do not
-validate every repository policy or private-repository installation.
+The template:
 
-## Two onboarding checks
+1. checks out the PR's **base** commit with `persist-credentials: false`;
+2. fetches the PR **head** as Git objects without checking it out, and stops if
+   the fetched commit doesn't match the event's head SHA;
+3. runs the Action, pinned to a full commit SHA, in `advisory` mode;
+4. prints a one-line result and checks that the outputs and report agree.
 
-After installation reaches the default branch:
+Pin the Action to a full commit SHA. Tags are convenient but can be moved.
 
-1. Open a README-only PR. Expect `complete / none / 0 findings` and analysis exit 0.
-2. In a separate PR add the unused workflow below as
-   `.github/workflows/pilot-read-grant.yml`. Expect `complete / suggested`, one
-   WF001 finding and analysis exit 0. Do not dispatch or merge this fixture;
-   inspect the summary and close the PR.
+Keep the job out of required status checks while you evaluate it. Findings never
+fail the step, so making it required would not force anyone to review them.
+
+## Check the installation
+
+After the workflow is on your default branch:
+
+1. Open a PR that only edits the README. Expect `complete / none`, 0 findings.
+2. Open a separate PR that adds this file as
+   `.github/workflows/pilot-read-grant.yml`. Expect `complete / suggested` with
+   one WF001 finding. Close the PR afterwards without merging.
 
 ```yaml
 name: Pilot read-grant fixture
@@ -54,49 +52,53 @@ jobs:
       - run: echo "Manual pilot fixture"
 ```
 
-Record both run URLs. If results differ, inspect the diagnostic and report the
-public PR/run links. Never invent token defaults or add write access for the test.
+## Inputs
 
-## Interpret the outputs
+| Input | Default | Description |
+|---|---|---|
+| `mode` | `require-complete` | `require-complete` fails the step when analysis is incomplete or errored. `advisory` never fails because of the analysis result. |
+| `base` | PR base SHA | Base commit SHA (full 40 or 64 hex characters). |
+| `head` | PR head SHA | Head commit SHA. |
+| `repository-path` | `.` | Local clone that contains both commits. |
+| `default-permissions` | — | JSON map of your repository's default token permissions, e.g. `{"contents":"read"}`. Lets jobs without a `permissions` block be compared. Set this in the calling workflow, never from PR content. |
 
-| Analysis / review | Meaning |
+## Outputs
+
+| Output | Values |
 |---|---|
-| complete / none | No supported configured change was found; continue ordinary review |
-| complete / suggested | Inspect the intended token/trigger/secret/context changes |
-| incomplete / unknown | Missing context; zero findings is not a clean result |
-| incomplete or error / suggested | Inspect known findings and unresolved parts |
-| error / unknown | Input or analysis failed; inspect the diagnostic |
-| failed step / missing outputs | Execution or report publication did not finish |
+| `analysis-status` | `complete`, `incomplete` or `error` |
+| `review-status` | `suggested`, `none` or `unknown` |
+| `finding-count` | Number of findings |
+| `analysis-exit-code` | `0` if complete, otherwise `2` (independent of `mode`) |
+| `report-path` | JSON report in `$RUNNER_TEMP` |
+| `summary-path` | Markdown summary in `$RUNNER_TEMP` |
+| `base-sha`, `head-sha` | Resolved commits; empty if they couldn't be resolved |
 
-Advisory mode can succeed with incomplete/error analysis. Default
-`require-complete` fails those states, but **neither mode fails just because
-findings exist**. A required status alone does not require approval of grants.
-[README](README.md#outcomes) separates these outcomes from CLI exits.
+The Markdown summary is also written to the job summary. The Action posts no PR
+comments and sends nothing to external services.
 
-Outputs are `analysis-status`, `review-status`, `finding-count`,
-`analysis-exit-code`, `report-path`, `summary-path`, `base-sha` and `head-sha`.
-JSON/Markdown reports stay in the GitHub job logs/summary and job-local files;
-no PR comments, telemetry or external reporting service are used.
+## Reading the result
+
+| Analysis / review | What to do |
+|---|---|
+| `complete / none` | Nothing in scope changed. Continue normal review. |
+| `complete / suggested` | Check that each reported change is intended. |
+| `incomplete / unknown` | Some context is missing; zero findings is not a clean result. Read the diagnostics. |
+| `incomplete` or `error` / `suggested` | Check the findings and the unresolved parts. |
+| `error / unknown` | Input couldn't be read or parsed. Read the diagnostics. |
+| Failed step or missing outputs | The Action itself didn't finish. |
 
 ## Troubleshooting
 
-If the fetch step says the PR head does not match the event, the PR may have
-changed while the run was starting. Run the workflow for the latest PR revision
-again after GitHub updates the pull ref. Keep the equality check: analyzing a
-different head would give a report for the wrong revision.
+**"The fetched PR head does not match this event."** The PR was updated while
+the run was starting. Re-run the workflow for the latest commit. Don't remove the
+check: without it the report could describe a different commit.
 
-If fetching fails, inspect the fetch error and repository visibility. This recipe
-fetches public commits without stored checkout credentials. For an analysis
-`incomplete` or `error`, inspect the summary rather than treating a successful
-advisory step as a clean result. Report ordinary bugs with a small public or
-synthetic reproduction; use [private reporting](SECURITY.md) for vulnerabilities.
+**Fetch fails.** Check the error and the repository's visibility. The template
+fetches without credentials, so this is expected for private repositories.
 
-## Coverage and feedback
+**Incomplete because inherited token defaults are unknown.** Add a `permissions`
+block to the job or workflow, or set `default-permissions`.
 
-See [validation](VALIDATION.md), [trigger policy](docs/TRIGGER-POLICY.md),
-[runner/environment policy](docs/CONTEXT-POLICY.md) and [YAML policy](docs/YAML-POLICY.md).
-The installation pin above contains the 0.0.4 runtime, including bounded YAML
-alias support and runner/environment association findings.
-See [known release limitations](docs/KNOWN-LIMITATIONS.md) when reviewing older installations.
-For the optional advisory trial, see [PILOT.md](PILOT.md). No production
-precision/recall or independent human security audit is claimed.
+Report bugs with a small public or synthetic reproduction. Report
+vulnerabilities privately; see [SECURITY.md](SECURITY.md).

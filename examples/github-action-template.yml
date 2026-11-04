@@ -1,8 +1,7 @@
-# Advisory workflow-privilege review on pull requests.
-# The steps below check out the base and fetch the head as data.
-# PRs can edit this calling workflow; keep normal workflow review and fork approvals.
-# Pin the reviewed Action to its evaluated full commit SHA.
-# Advisory pilot: keep this job outside required merge checks.
+# Reports workflow privilege changes in pull requests (advisory).
+# Checks out the base commit and fetches the PR head as data; nothing from the PR runs.
+# A PR can edit this file, so keep normal review and fork approval for workflow changes.
+# Pin the Action to a reviewed full commit SHA, and keep this job out of required checks.
 name: Workflow privilege review (advisory)
 on:
   pull_request:

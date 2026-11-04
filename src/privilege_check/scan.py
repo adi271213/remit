@@ -21,7 +21,7 @@ SCOPES = {
 SCOPES.update({"id-token": {"none", "write"}, "copilot-requests": {"none", "write"},
                "models": {"none", "read"}, "vulnerability-alerts": {"none", "read"}})
 # Selected default/base-branch execution boundaries, not a claim that each
-# event grants a write token. See docs/rules.md#wf003 for rationale and limits.
+# event grants a write token. See docs/RULES.md (WF003) for rationale and limits.
 REVIEW_TRIGGERS = {
     "pull_request_target", "workflow_run", "issue_comment", "issues",
     "discussion", "discussion_comment",
