@@ -1,4 +1,4 @@
-include action.yml requirements.txt CHANGELOG.md CONTRIBUTING.md SECURITY.md SETUP.md VALIDATION.md PILOT.md
+include action.yml requirements.txt CHANGELOG.md CONTRIBUTING.md SECURITY.md SETUP.md
 recursive-include scripts *.py *.sh
 recursive-include tests *.py *.json
 graft examples

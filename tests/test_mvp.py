@@ -115,10 +115,9 @@ class Semantics(unittest.TestCase):
         self.assertEqual((result["analysis"], result["findings"]), ("complete", []))
         self.assertIn("Trigger filter changes", " ".join(result["limitations"]))
 
-    def test_review_trigger_finding_survives_unknown_token_defaults(self):
-        base = BASE
-        head = BASE.replace("on: push", "on: [push, issue_comment]").replace("permissions: {}\n", "")
-        result = self.scan(head, base)
+    def test_review_trigger_finding_survives_incomplete_analysis(self):
+        head = BASE.replace("on: push", "on: [push, issue_comment]").replace("echo fixture", "echo ${{ secrets[inputs.name] }}")
+        result = self.scan(head, BASE)
         self.assertEqual((result["analysis"], result["review"]), ("incomplete", "suggested"))
         self.assertEqual([(f["rule"], f["after"]) for f in result["findings"]], [("WF003", "issue_comment")])
 
@@ -158,8 +157,10 @@ class Semantics(unittest.TestCase):
     def test_unknown_base_is_not_assumed_none(self):
         base = BASE.replace("permissions: {}\n", "")
         result = self.scan(BASE.replace("permissions: {}", "permissions: {contents: write}"), base)
-        self.assertEqual(result["analysis"], "incomplete")
-        self.assertEqual(result["findings"], [])
+        self.assertEqual(result["analysis"], "complete")
+        # Not WF001 from "none": the inherited base may already have had contents: write.
+        self.assertEqual([(f["rule"], f["before"], f["after"]) for f in result["findings"]],
+                         [("WF002", "repository default", {"contents": "write"})])
 
     def test_unchanged_inheritance_is_symbolic_and_disclosed(self):
         base = BASE.replace("permissions: {}\n", "")
@@ -177,29 +178,62 @@ class Semantics(unittest.TestCase):
                 resolved = self.scan(head, base, {"contents": contents, "issues": issues, "id-token": oidc})
                 self.assertEqual((resolved["analysis"], resolved["findings"]), ("complete", []))
 
-    def test_transitions_to_and_from_unknown_remain_incomplete(self):
+    def test_switch_from_explicit_to_inherited_is_reported_as_wf002(self):
         inherited = BASE.replace("permissions: {}\n", "")
-        for explicit in (BASE, BASE.replace("permissions: {}", "permissions: {contents: read}"), BASE.replace("permissions: {}", "permissions: write-all")):
-            for base, head in ((explicit, inherited), (inherited, explicit)):
-                with self.subTest(base=base, head=head):
-                    result = self.scan(head, base)
-                    self.assertEqual(result["analysis"], "incomplete")
-                    self.assertEqual(result["inheritedComparisons"], [])
+        for explicit, before in ((BASE, "none"), (BASE.replace("permissions: {}", "permissions: {contents: read}"), {"contents": "read"})):
+            with self.subTest(base=explicit):
+                result = self.scan(inherited, explicit)
+                self.assertEqual(result["analysis"], "complete")
+                self.assertEqual([(f["rule"], f["before"], f["after"]) for f in result["findings"]],
+                                 [("WF002", before, "repository default")])
+                self.assertEqual(result["inheritedComparisons"], [])
 
-    def test_new_inherited_job_and_renamed_job_remain_incomplete(self):
+    def test_switch_from_write_all_to_inherited_cannot_increase(self):
+        inherited = BASE.replace("permissions: {}\n", "")
+        result = self.scan(inherited, BASE.replace("permissions: {}", "permissions: write-all"))
+        self.assertEqual((result["analysis"], result["findings"]), ("complete", []))
+
+    def test_hardening_from_inherited_to_minimal_explicit_is_quiet(self):
+        inherited = BASE.replace("permissions: {}\n", "")
+        for explicit in (BASE, BASE.replace("permissions: {}", "permissions: {contents: read, packages: read}")):
+            with self.subTest(head=explicit):
+                result = self.scan(explicit, inherited)
+                self.assertEqual((result["analysis"], result["findings"]), ("complete", []))
+                self.assertIn("most restrictive default", " ".join(result["assumptions"]))
+                self.assertEqual(result["inheritedComparisons"], [])
+
+    def test_inherited_to_explicit_reports_only_scopes_above_the_narrowest_default(self):
+        inherited = BASE.replace("permissions: {}\n", "")
+        head = BASE.replace("permissions: {}", "permissions: {contents: read, issues: write, id-token: write}")
+        result = self.scan(head, inherited)
+        self.assertEqual(result["analysis"], "complete")
+        self.assertEqual([(f["rule"], f["after"]) for f in result["findings"]],
+                         [("WF002", {"id-token": "write", "issues": "write"})])
+        write_all = self.scan(BASE.replace("permissions: {}", "permissions: write-all"), inherited)
+        self.assertEqual([f["rule"] for f in write_all["findings"]], ["WF002"])
+        self.assertIn("contents", write_all["findings"][0]["after"])
+
+    def test_new_or_renamed_inherited_job_is_reported_as_wf002(self):
         base = BASE.replace("permissions: {}\n", "")
-        for head in (base.replace("test:", "renamed:"), base + "  added:\n    runs-on: ubuntu-latest\n    steps: [{run: echo new}]\n"):
+        for head, job in ((base.replace("test:", "renamed:"), "renamed"),
+                          (base + "  added:\n    runs-on: ubuntu-latest\n    steps: [{run: echo new}]\n", "added")):
             result = self.scan(head, base)
-            self.assertEqual(result["analysis"], "incomplete")
+            self.assertEqual(result["analysis"], "complete")
+            self.assertEqual([(f["rule"], f["job"], f["before"]) for f in result["findings"]], [("WF002", job, None)])
         new_workflow = compare(Snapshot("base", {}), Snapshot("head", {WF: base}))
-        self.assertEqual(new_workflow["analysis"], "incomplete")
+        self.assertEqual((new_workflow["analysis"], [f["rule"] for f in new_workflow["findings"]]), ("complete", ["WF002"]))
 
-    def test_dropping_job_or_workflow_override_remains_incomplete(self):
+    def test_dropping_job_or_workflow_override_is_reported_as_wf002(self):
         inherited = BASE.replace("permissions: {}\n", "")
         job_override = inherited.replace("runs-on:", "permissions: {}\n    runs-on:")
         for base in (BASE, job_override):
             result = self.scan(inherited, base)
-            self.assertEqual(result["analysis"], "incomplete")
+            self.assertEqual((result["analysis"], [f["rule"] for f in result["findings"]]), ("complete", ["WF002"]))
+
+    def test_supplied_defaults_replace_wf002_with_wf001(self):
+        inherited = BASE.replace("permissions: {}\n", "")
+        result = self.scan(inherited, BASE, {"contents": "write"})
+        self.assertEqual([(f["rule"], f["after"]) for f in result["findings"]], [("WF001", {"contents": "write"})])
 
     def test_other_rules_survive_symbolic_token_comparison(self):
         base = BASE.replace("permissions: {}\n", "")
@@ -263,6 +297,15 @@ class Semantics(unittest.TestCase):
     def test_invalid_scope_is_not_clean(self):
         result = self.scan(BASE.replace("permissions: {}", "permissions: {unknown-scope: write}"))
         self.assertEqual(result["analysis"], "error")
+
+    def test_models_scope_is_supported(self):
+        result = self.scan(BASE.replace("permissions: {}", "permissions: {models: read}"))
+        self.assertEqual(result["analysis"], "complete")
+        self.assertEqual([(f["before"], f["after"]) for f in result["findings"]],
+                         [({"models": "none"}, {"models": "read"})])
+        unrelated = BASE.replace("permissions: {}", "permissions: {models: read}")
+        self.assertEqual(self.scan(unrelated.replace("echo", "printf"), unrelated)["analysis"], "complete")
+        self.assertEqual(self.scan(BASE.replace("permissions: {}", "permissions: {models: write}"))["analysis"], "error")
 
     def test_invalid_oidc_read(self):
         self.assertEqual(self.scan(BASE.replace("permissions: {}", "permissions: {id-token: read}"))["analysis"], "error")
@@ -371,7 +414,8 @@ class SourcesAndIntegration(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             base, head = root / "base", root / "head"
-            base.mkdir(); head.mkdir()
+            base.mkdir()
+            head.mkdir()
             write(base, {WF: BASE})
             write(head, {WF: BASE.replace("permissions: {}", "permissions: {packages: write}"),
                          ".privilege-check.yml": "suppress: ['*']"})
@@ -498,3 +542,38 @@ class SourcesAndIntegration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ThirdPartyCode(unittest.TestCase):
+    """WF009: new third-party code in a job that can use privileges."""
+
+    BASE = ("on: push\npermissions: {}\njobs:\n  rel:\n    permissions: {contents: write}\n"
+            "    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n")
+
+    def wf009(self, head, base=None):
+        report = compare(Snapshot("base", {WF: base or self.BASE}), Snapshot("head", {WF: head}))
+        return [(f["line"], f["after"]) for f in report["findings"] if f["rule"] == "WF009"]
+
+    def test_new_action_in_privileged_job_is_reported_on_its_line(self):
+        self.assertEqual(self.wf009(self.BASE + "      - uses: someone/tool@v1\n"),
+                         [(9, {"uses": "someone/tool@v1", "privileges": ["contents: write"]})])
+
+    def test_version_bumps_and_first_party_or_local_code_stay_quiet(self):
+        with_tool = self.BASE + "      - uses: someone/tool@v1\n"
+        self.assertEqual(self.wf009(with_tool.replace("@v1", "@0123456789abcdef0123456789abcdef01234567"), with_tool), [])
+        self.assertEqual(self.wf009(self.BASE + "      - uses: actions/cache@v4\n      - uses: github/codeql-action/init@v3\n"
+                                    "      - uses: ./local\n      - uses: docker://alpine:3\n"), [])
+
+    def test_unprivileged_job_stays_quiet(self):
+        base = self.BASE.replace("{contents: write}", "{contents: read}")
+        self.assertEqual(self.wf009(base + "      - uses: someone/tool@v1\n", base), [])
+
+    def test_secrets_environment_and_reusable_workflows_count_as_privileges(self):
+        base = self.BASE.replace("{contents: write}", "{}")
+        head = base + "      - uses: someone/tool@v1\n        with: {token: '${{ secrets.NPM }}'}\n"
+        self.assertEqual(self.wf009(head, base), [(9, {"uses": "someone/tool@v1", "privileges": ["secrets: NPM"]})])
+        head = base.replace("    runs-on:", "    environment: prod\n    runs-on:") + "      - uses: someone/tool@v1\n"
+        self.assertEqual(self.wf009(head, base)[0][1]["privileges"], ["environment: prod"])
+        caller = base + "  call:\n    uses: org/shared/.github/workflows/deploy.yml@main\n    secrets: inherit\n"
+        self.assertEqual(self.wf009(caller, base),
+                         [(10, {"uses": "org/shared/.github/workflows/deploy.yml@main", "privileges": ["all secrets"]})])

@@ -34,7 +34,8 @@ if __name__ == "__main__":
     evidence = {"python": sys.version.split()[0], "pyyaml": yaml.__version__,
                 "testsRun": result.testsRun, "failures": len(result.failures), "errors": len(result.errors),
                 "results": result.records,
-                "scope": "Local synthetic acceptance and Git/Action-entry integration tests. No hosted Actions run or real-PR benchmark.",
+                "scope": "Local synthetic acceptance and Git/Action-entry integration tests. "
+                         "No hosted Actions run or real-PR benchmark.",
                 "sourceHashes": {p.relative_to(ROOT).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
                     for folder in ("src", "scripts", "tests") for p in sorted((ROOT/folder).rglob("*"))
                     if p.suffix in (".py", ".sh", ".json") and p.name != "validation-results.json"}}

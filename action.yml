@@ -41,6 +41,9 @@ outputs:
   head-sha:
     description: Resolved head commit SHA; empty if inputs could not be resolved.
     value: ${{ steps.report.outputs.head-sha }}
+  sarif-path:
+    description: Absolute SARIF 2.1.0 report path for code scanning upload; empty if the analysis did not run.
+    value: ${{ steps.report.outputs.sarif-path }}
 branding:
   icon: shield
   color: purple

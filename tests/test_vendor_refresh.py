@@ -1,4 +1,5 @@
 """Maintenance downloads must obey the checked-in source pin, not live metadata."""
+import contextlib
 import hashlib
 import importlib.util
 import io
@@ -39,7 +40,8 @@ class VendorRefresh(unittest.TestCase):
     def test_refresh_uses_exact_recorded_url_and_digest(self):
         with tempfile.TemporaryDirectory() as temp:
             folder, manifest, blob = self.fixture(Path(temp))
-            with patch.object(vendor.urllib.request, "urlopen", return_value=Response(blob)) as download:
+            with (patch.object(vendor.urllib.request, "urlopen", return_value=Response(blob)) as download,
+                  contextlib.redirect_stdout(io.StringIO())):
                 vendor.refresh(Path(temp))
             download.assert_called_once_with(manifest["sourceURL"], timeout=30)
             result = json.loads((folder / "manifest.json").read_text())

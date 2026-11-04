@@ -15,8 +15,8 @@
     ]
   },
   "incomplete": {
-    "base": "on: workflow_dispatch\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n",
-    "head": "on: workflow_dispatch\npermissions: {contents: write}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n",
+    "base": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n",
+    "head": "on: workflow_dispatch\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ secrets[inputs.name] }}\n",
     "analysis": "incomplete",
     "review": "unknown",
     "rules": []
@@ -145,6 +145,15 @@
     ],
     "secrets": [
       "DEPLOY"
+    ]
+  },
+  "inherited-new-job": {
+    "base": "on: workflow_dispatch\njobs:\n  test:\n    permissions: {}\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n",
+    "head": "on: workflow_dispatch\njobs:\n  test:\n    permissions: {}\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n  added:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo added\n",
+    "analysis": "complete",
+    "review": "suggested",
+    "rules": [
+      "WF002"
     ]
   }
 }

@@ -65,4 +65,4 @@ if __name__ == "__main__":
         refresh()
     except (ValueError, OSError, KeyError, TypeError, zipfile.BadZipFile) as exc:
         print(f"Dependency refresh failed: {exc}", file=sys.stderr)
-        raise SystemExit(2)
+        raise SystemExit(2) from None
