@@ -16,6 +16,9 @@ First public release.
   `pull_request_target`, `workflow_run` or `issue_comment` job (WF010), and
   mutable pull request references checked out after a label, comment or
   environment approval (WF011, time-of-check to time-of-use).
+- **`remit audit`** reports WF010 and WF011 in a repository's current state,
+  for a directory or any Git commit, as JSON, Markdown or SARIF, with an
+  optional `--fail-on-findings` exit code for scheduled checks.
 - **Local code is followed:** steps inside local composite actions and local
   reusable workflows count, and a change to them is caught even when no
   workflow file changed.
