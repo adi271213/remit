@@ -9,9 +9,9 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 import yaml
-from privilege_check.scan import StrictLoader, compare, parse
-from privilege_check.sources import Snapshot
-from privilege_check.yaml_limits import validate_graph
+from remit.scan import StrictLoader, compare, parse
+from remit.sources import Snapshot
+from remit.yaml_limits import validate_graph
 
 WF = ".github/workflows/ci.yml"
 CASES = json.loads((ROOT / "tests/alias_cases.json").read_text())
@@ -63,12 +63,12 @@ class AliasTests(unittest.TestCase):
 
     def test_exact_graph_budget_boundaries(self):
         node = yaml.compose("[&x ab, *x]")
-        with patch("privilege_check.yaml_limits.MAX_EXPANDED_NODES", 3), \
-             patch("privilege_check.yaml_limits.MAX_EXPANDED_SCALAR_BYTES", 4), \
-             patch("privilege_check.yaml_limits.MAX_EXPANDED_DEPTH", 2):
+        with patch("remit.yaml_limits.MAX_EXPANDED_NODES", 3), \
+             patch("remit.yaml_limits.MAX_EXPANDED_SCALAR_BYTES", 4), \
+             patch("remit.yaml_limits.MAX_EXPANDED_DEPTH", 2):
             validate_graph(node)
         for limit, value in (("NODES", 2), ("SCALAR_BYTES", 3), ("DEPTH", 1)):
-            with self.subTest(limit=limit), patch("privilege_check.yaml_limits.MAX_EXPANDED_" + limit, value):
+            with self.subTest(limit=limit), patch("remit.yaml_limits.MAX_EXPANDED_" + limit, value):
                 with self.assertRaises(ValueError):
                     validate_graph(node)
 
@@ -80,7 +80,7 @@ class AliasTests(unittest.TestCase):
         case = next(c for c in CASES if c["case"] == "alias-matrix")
         doc = parse(case["head"])
         original = copy.deepcopy(doc)
-        with patch("privilege_check.scan.parse", return_value=doc):
+        with patch("remit.scan.parse", return_value=doc):
             scan(case["base"], case["head"])
         self.assertEqual(doc, original)
 
@@ -104,7 +104,7 @@ class AliasTests(unittest.TestCase):
         program = """
 import json, sys
 sys.path.insert(0, sys.argv[1])
-from privilege_check.scan import parse
+from remit.scan import parse
 for text in json.load(sys.stdin):
     try: parse(text)
     except ValueError: pass

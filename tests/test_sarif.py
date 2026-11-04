@@ -9,10 +9,10 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from privilege_check.cli import main
-from privilege_check.sarif import RULES, sarif
-from privilege_check.scan import compare, error_report
-from privilege_check.sources import Snapshot
+from remit.cli import main
+from remit.sarif import RULES, sarif
+from remit.scan import compare, error_report
+from remit.sources import Snapshot
 
 WF = ".github/workflows/ci.yml"
 BASE = "on: push\npermissions: {}\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n"
@@ -28,7 +28,7 @@ class Sarif(unittest.TestCase):
         log = sarif(scan(HEAD))
         self.assertEqual(log["version"], "2.1.0")
         run = log["runs"][0]
-        self.assertEqual(run["tool"]["driver"]["name"], "workflow-privilege-check")
+        self.assertEqual(run["tool"]["driver"]["name"], "remit")
         [result] = run["results"]
         self.assertEqual(result["ruleId"], "WF001")
         location = result["locations"][0]["physicalLocation"]

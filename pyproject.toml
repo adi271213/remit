@@ -3,22 +3,24 @@ requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "workflow-privilege-check"
+name = "remit"
 version = "0.1.0"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-description = "Explain supported GitHub Actions privilege changes between two snapshots."
+description = "See what a pull request changes about what your GitHub Actions workflows are allowed to do."
 requires-python = ">=3.11"
 dependencies = ["PyYAML==6.0.3"]
 
 [project.urls]
-Source = "https://github.com/adi271213/workflow-privilege-check"
-Issues = "https://github.com/adi271213/workflow-privilege-check/issues"
-Documentation = "https://github.com/adi271213/workflow-privilege-check/blob/main/SETUP.md"
+Source = "https://github.com/adi271213/remit"
+Issues = "https://github.com/adi271213/remit/issues"
+Documentation = "https://github.com/adi271213/remit/blob/main/SETUP.md"
 
 [project.scripts]
-workflow-privilege-check = "privilege_check.cli:main"
+remit = "remit.cli:main"
+# Pre-0.1.0 command name, kept as an alias.
+workflow-privilege-check = "remit.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

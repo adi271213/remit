@@ -93,7 +93,7 @@ def annotations(findings):
 
 def run():
     mode = os.environ.get("PRIVILEGE_MODE", "require-complete")
-    folder = Path(tempfile.mkdtemp(prefix="workflow-privilege-report.", dir=os.environ.get("RUNNER_TEMP")))
+    folder = Path(tempfile.mkdtemp(prefix="remit-report.", dir=os.environ.get("RUNNER_TEMP")))
     report_path, summary_path = folder / "report.json", folder / "summary.md"
     sarif_path = folder / "report.sarif"
     fallback = None
@@ -145,7 +145,7 @@ def run():
     if target := os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(target, "a", encoding="utf-8") as handle:
             handle.write(summary)
-    print("::group::Workflow privilege report")
+    print("::group::Remit report")
     # Repository-controlled report text must never be interpreted as workflow commands.
     token = "wpc-" + uuid.uuid4().hex
     print(f"::stop-commands::{token}")
@@ -155,10 +155,10 @@ def run():
     for line in annotations(report["findings"]):
         print(line)
     if report["analysis"] != "complete":
-        print("::warning title=Workflow privilege analysis " + report["analysis"]
+        print("::warning title=Remit analysis " + report["analysis"]
               + "::Analysis did not complete. Review the job summary; no clean result was established.")
     elif report["findings"]:
-        print("::notice title=Workflow privilege review suggested::Configured capability changes require human "
+        print("::notice title=Remit review suggested::Configured capability changes require human "
               "review; see the job summary.")
     return 0 if mode == "advisory" else code
 
@@ -167,6 +167,6 @@ if __name__ == "__main__":
     try:
         raise SystemExit(run())
     except OSError:
-        print("::error title=Workflow privilege reporting failed::Could not create or publish Action reports.",
+        print("::error title=Remit reporting failed::Could not create or publish Action reports.",
               file=sys.stderr)
         raise SystemExit(2) from None

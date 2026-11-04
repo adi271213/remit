@@ -1,7 +1,7 @@
 # Reports workflow privilege changes in pull requests (advisory).
 # Checks out the base commit and fetches the PR head as data; nothing from the PR runs.
 # Copy to .github/workflows/ and keep it out of required status checks.
-name: Workflow privilege review
+name: Remit
 on:
   pull_request:
     types: [opened, synchronize, reopened]

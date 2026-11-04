@@ -17,8 +17,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from privilege_check.scan import compare  # noqa: E402
-from privilege_check.sources import Snapshot  # noqa: E402
+from remit.scan import compare  # noqa: E402
+from remit.sources import Snapshot  # noqa: E402
 
 # zizmor audits that address the same risk as each rule.
 RELATED = {

@@ -3,7 +3,7 @@ name: Bug report
 about: An incorrect finding, missed supported change, or installation failure
 ---
 
-For vulnerabilities, use [private reporting](https://github.com/adi271213/workflow-privilege-check/security/advisories/new).
+For vulnerabilities, use [private reporting](https://github.com/adi271213/remit/security/advisories/new).
 Do not include credentials, private logs or private repository content.
 
 ### Version and installation

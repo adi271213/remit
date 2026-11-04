@@ -1,5 +1,5 @@
 # Runs this repository's own Action, from the PR's base commit, on every pull request.
-name: Workflow privilege review (self-check)
+name: Remit (self-check)
 on:
   pull_request:
     types: [opened, synchronize, reopened]
