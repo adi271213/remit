@@ -14,7 +14,7 @@ so nothing is installed with pip at runtime.
 ## Install
 
 1. Copy [`examples/github-action-template.yml`](examples/github-action-template.yml)
-   to `.github/workflows/workflow-privilege-check.yml`.
+   to `.github/workflows/remit.yml`.
 2. Review it and merge it through your normal process.
 
 The template:
@@ -94,7 +94,7 @@ job's permissions, and add:
         uses: github/codeql-action/upload-sarif@1fc58d04a4d4374f921bdac573c3811c240f9c26 # v4.39.2
         with:
           sarif_file: ${{ steps.privilege.outputs.sarif-path }}
-          category: workflow-privilege-check
+          category: remit
 ```
 
 Pull requests from forks get a read-only token, so the upload step fails for

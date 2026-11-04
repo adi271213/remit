@@ -4,7 +4,7 @@ about: Tell us how the check worked on your repository, good or bad
 labels: feedback
 ---
 
-Thanks for trying Workflow Privilege Check. Share only public information:
+Thanks for trying Remit. Share only public information:
 no credentials, private logs or private repository content.
 
 ### Repository

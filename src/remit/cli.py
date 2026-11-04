@@ -10,7 +10,7 @@ from .sources import InputError, directory, git_snapshot
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(prog="workflow-privilege-check")
+    parser = argparse.ArgumentParser(prog="remit")
     commands = parser.add_subparsers(dest="command", required=True)
     scan = commands.add_parser("scan", help="Report supported changes without executing workflow code")
     source = scan.add_mutually_exclusive_group(required=True)

@@ -8,7 +8,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "vendor/pyyaml"))
-from privilege_check.cli import main
+from remit.cli import main
 
 
 def entry():

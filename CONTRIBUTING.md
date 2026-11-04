@@ -52,7 +52,7 @@ the PR's base commit.
 
 ## Releases
 
-1. Update the version in `pyproject.toml` and `src/privilege_check/__init__.py`,
+1. Update the version in `pyproject.toml` and `src/remit/__init__.py`,
    and move `Unreleased` entries in the changelog under the new version.
 2. Run CI, the offline smoke test, the replay and the hosted contract on the
    release candidate.
@@ -65,8 +65,8 @@ the PR's base commit.
    and the contract workflow.
 
 PyPI trusted publishing needs a one-time setup on pypi.org: add a pending
-publisher for project `workflow-privilege-check`, owner `adi271213`, repository
-`workflow-privilege-check`, workflow `publish.yml`, environment `pypi`.
+publisher for project `remit`, owner `adi271213`, repository
+`remit`, workflow `publish.yml`, environment `pypi`.
 
 Tags are never moved or deleted after publication.
 

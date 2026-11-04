@@ -32,7 +32,7 @@ class HostedFixtures(unittest.TestCase):
                                         cwd=temp, env=env, capture_output=True, text=True, timeout=30)
                     exit_code = 0 if expected["analysis"] == "complete" else 2
                     self.assertEqual(cp.returncode, 0 if mode == "advisory" else exit_code, cp.stderr)
-                    report = json.loads(next(Path(temp).glob("workflow-privilege-report.*/report.json")).read_text())
+                    report = json.loads(next(Path(temp).glob("remit-report.*/report.json")).read_text())
                     self.assertEqual((report["analysis"], report["action"]["reviewStatus"]),
                                      (expected["analysis"], expected["review"]))
                     self.assertEqual(sorted(f["rule"] for f in report["findings"]), sorted(expected["rules"]))

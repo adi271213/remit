@@ -8,8 +8,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
-from privilege_check.scan import compare
-from privilege_check.sources import Snapshot
+from remit.scan import compare
+from remit.sources import Snapshot
 
 WF = '.github/workflows/deploy.yml'
 BASE = [{'runner': 'ubuntu-latest', 'target': 'production'},

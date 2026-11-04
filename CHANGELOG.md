@@ -4,6 +4,10 @@
 
 ## 0.1.0 — 2026-11-04
 
+- **Renamed to Remit.** The package and command are now `remit` (`pip install
+  remit`, `remit scan …`); `workflow-privilege-check` remains as a command
+  alias. The repository moves to `adi271213/remit`, and GitHub redirects the
+  old URLs. The Python module is `remit`.
 - **New rule WF002:** a new job, or a job that drops its `permissions` block,
   relying on the repository's default token permissions is now a finding that
   asks for explicit permissions. Previously it made the analysis `incomplete`,

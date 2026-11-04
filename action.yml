@@ -1,4 +1,4 @@
-name: Workflow Privilege Check
+name: 'Remit: workflow privilege review'
 description: Report supported GitHub Actions privilege changes between exact commits.
 inputs:
   mode:
