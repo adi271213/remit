@@ -30,6 +30,8 @@ RELATED = {
     "WF007": set(),
     "WF008": set(),
     "WF009": {"unpinned-uses", "archived-uses", "known-vulnerable-actions", "impostor-commit", "ref-confusion"},
+    "WF010": {"dangerous-triggers", "artipacked", "cache-poisoning"},
+    "WF011": {"dangerous-triggers"},
 }
 
 

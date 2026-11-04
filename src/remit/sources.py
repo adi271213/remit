@@ -1,7 +1,9 @@
 """Bounded reads of workflow blobs. No checkout, execution, or network calls."""
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 import hashlib
 import os
+import posixpath
 from pathlib import Path
 import re
 import stat
@@ -10,6 +12,8 @@ import subprocess
 MAX_FILE = 256 * 1024
 MAX_TOTAL = 4 * 1024 * 1024
 MAX_FILES = 200
+# Local actions read on demand, beyond .github/workflows.
+MAX_EXTRA_FILES = 100
 WORKFLOW = re.compile(r"^\.github/workflows/[^/]+\.ya?ml$")
 
 
@@ -21,6 +25,39 @@ class InputError(ValueError):
 class Snapshot:
     identity: str
     files: dict[str, str]
+    # Reads another repository file (such as a local action's action.yml) on demand.
+    # Returns None when the file is absent, unsafe or over budget.
+    read: Callable[[str], str | None] | None = field(default=None, compare=False, repr=False)
+
+
+def safe_relative(path: str) -> str | None:
+    """Normalize a repository-relative path; reject absolute paths and escapes."""
+    if not path or "\0" in path or "\\" in path or path.startswith("/"):
+        return None
+    normalized = posixpath.normpath(path)
+    if normalized in (".", "") or normalized.startswith("../") or normalized == "..":
+        return None
+    return normalized
+
+
+class _Budget:
+    def __init__(self):
+        self.files = 0
+        self.bytes = 0
+
+    def allow(self, size: int) -> bool:
+        if self.files >= MAX_EXTRA_FILES or size > MAX_FILE or self.bytes + size > MAX_TOTAL:
+            return False
+        self.files += 1
+        self.bytes += size
+        return True
+
+
+def _text(blob: bytes) -> str | None:
+    try:
+        return blob.decode("utf-8-sig", errors="strict")
+    except UnicodeError:
+        return None
 
 
 def _decode(files: dict[str, bytes]) -> dict[str, str]:
@@ -70,7 +107,35 @@ def directory(root: str | Path) -> Snapshot:
     digest = hashlib.sha256()
     for name, blob in sorted(blobs.items()):
         digest.update(name.encode() + b"\0" + hashlib.sha256(blob).digest())
-    return Snapshot("directory:sha256:" + digest.hexdigest(), files)
+    budget = _Budget()
+
+    def read(path: str) -> str | None:
+        relative = safe_relative(path)
+        if relative is None:
+            return None
+        target = root / relative
+        # Every component must be a real directory or file inside the root, not a link.
+        current = root
+        for part in Path(relative).parts:
+            current = current / part
+            if current.is_symlink():
+                return None
+        if not target.is_file() or not target.resolve().is_relative_to(root):
+            return None
+        try:
+            fd = os.open(target, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        except OSError:
+            return None
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                return None
+            with os.fdopen(fd, "rb", closefd=False) as handle:
+                blob = handle.read(MAX_FILE + 1)
+        finally:
+            os.close(fd)
+        return _text(blob) if budget.allow(len(blob)) else None
+
+    return Snapshot("directory:sha256:" + digest.hexdigest(), files, read)
 
 
 def _git(repo: str | Path, *args: str) -> bytes:
@@ -116,4 +181,23 @@ def git_snapshot(repo: str | Path, ref: str) -> Snapshot:
         if size > MAX_FILE or total > MAX_TOTAL or len(blobs) >= MAX_FILES:
             raise InputError("Workflow snapshot exceeds input limits.")
         blobs[name] = _git(repo, "cat-file", "blob", oid)
-    return Snapshot(commit, _decode(blobs))
+    budget = _Budget()
+
+    def read(path: str) -> str | None:
+        relative = safe_relative(path)
+        if relative is None:
+            return None
+        try:
+            listing = _git(repo, "ls-tree", "-z", "--full-tree", commit, "--", relative).split(b"\0")[0]
+            if not listing:
+                return None
+            meta = listing.split(b"\t", 1)[0].decode().split()
+            if meta[0] not in ("100644", "100755") or meta[1] != "blob":
+                return None
+            if not budget.allow(int(_git(repo, "cat-file", "-s", meta[2]))):
+                return None
+            return _text(_git(repo, "cat-file", "blob", meta[2]))
+        except (InputError, ValueError, IndexError):
+            return None
+
+    return Snapshot(commit, _decode(blobs), read)

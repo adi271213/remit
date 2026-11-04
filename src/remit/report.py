@@ -18,6 +18,11 @@ REVIEW_GUIDANCE = {
               "remove access and approval constraints."),
     "WF009": ("Check who maintains the new action or reusable workflow, that it is pinned to a full commit SHA, "
               "and whether the job really needs to give it these privileges."),
+    "WF010": ("Check that this job never runs, builds or installs pull request content while it holds secrets or "
+              "write access. Move that work to a job triggered by pull_request, and pass results through artifacts "
+              "it treats as data."),
+    "WF011": ("Make the job check out the exact commit that was approved (a SHA captured at approval time), not a "
+              "branch or pull request ref that can move after approval."),
     "WF008": ("Confirm that each newly paired runner should use that environment. Review runner access, "
               "environment-scoped settings and protection rules."),
 }
@@ -80,14 +85,17 @@ def markdown(report: dict) -> str:
     # One heading per workflow file, then one table per job (workflow-level first).
     files = {}
     for item in report["findings"]:
-        files.setdefault(item["file"], {}).setdefault(item["job"], []).append(item)
+        files.setdefault(item["file"], {}).setdefault((item["job"], item.get("workflow")), []).append(item)
     shortened = False
     missing_value = False
     for file, jobs in files.items():
         lines += ["### " + _text(file), ""]
-        for job, items in jobs.items():
+        for (job, workflow), items in jobs.items():
             items = _combine_token_rows(items)
-            lines += ["Job: " + _text(job) if job is not None else "Workflow-level change", "",
+            heading = "Job: " + _text(job) if job is not None else "Workflow-level change"
+            if workflow:
+                heading += " (in " + _text(workflow) + ")"
+            lines += [heading, "",
                       "| Rule | Before | After | Change |", "|---|---|---|---|"]
             for item in items:
                 before, short_before = _value(item["before"])

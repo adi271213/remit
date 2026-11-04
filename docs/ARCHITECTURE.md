@@ -9,7 +9,8 @@
 | `scripts/action_entry.py` | Resolves base/head SHAs from inputs or the PR event and calls the CLI. |
 | `src/remit/cli.py` | Argument parsing, report output, exit codes. |
 | `src/remit/sources.py` | Reads workflow files from a directory or from Git objects, with size limits. |
-| `src/remit/scan.py` | YAML parsing, rename detection, WF001–WF004 and WF009, and assembly of the report. |
+| `src/remit/scan.py` | YAML parsing, rename detection, WF001–WF004 and WF009–WF011, and assembly of the report. |
+| `src/remit/flows.py` | What code a job runs: third-party actions and fetches of pull request content, followed into local composite actions and reusable workflows. |
 | `src/remit/contexts.py` | WF005/WF007/WF008: runner and environment normalisation and matrix expansion. |
 | `src/remit/expressions.py` | Identifier grammar shared by secret and matrix parsing. |
 | `src/remit/yaml_limits.py` | Bounds the composed YAML graph before any Python objects are built. |
@@ -39,6 +40,10 @@ the given repository. It:
 - requires refs to resolve to a single full commit SHA;
 - rejects symlinks and submodules under `.github/workflows`;
 - applies a 15-second timeout to each Git call.
+
+Local actions outside `.github/workflows/` are read on demand through the same
+reader: at most 100 extra files and 4 MiB per snapshot, regular files only, and
+no path that leaves the repository or passes through a symbolic link.
 
 Git error output is never copied into the report.
 
