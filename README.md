@@ -1,57 +1,84 @@
+<div align="center">
+
 # Remit
 
 **Know when a pull request widens your workflows' authority.**
 
 [![CI](https://github.com/adi271213/remit/actions/workflows/ci.yml/badge.svg)](https://github.com/adi271213/remit/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/remit)](https://pypi.org/project/remit/)
+[![Python](https://img.shields.io/pypi/pyversions/remit)](https://pypi.org/project/remit/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/adi271213/remit/blob/main/LICENSE)
 
-A GitHub Action and CLI that compares the GitHub Actions workflows at a pull
-request's base and head commits and reports changes that give workflows more
-privilege: wider `GITHUB_TOKEN` scopes, sensitive new triggers, new secret
-references, self-hosted or custom runners, and deployment environment changes.
+</div>
 
-Workflow files are read as data. Nothing from the pull request is executed and
-the analysis makes no network calls.
+The changes that matter in a workflow PR are often a single line: `contents: read`
+becomes `write`, a `pull_request_target` trigger appears, a release job starts
+running a new third-party action with your secrets. Remit compares the base and
+head of every pull request and puts each of those changes on the line that
+introduced it, so reviewers can't miss them.
 
-## Why
+- **Only what changed.** Unchanged configuration stays quiet, so ordinary PRs get no noise.
+- **Right on the diff.** Findings appear as annotations in the PR's *Files changed* tab.
+- **Safe on untrusted PRs.** The PR is read as data and never executed; the analysis makes no network calls.
+- **Nothing to install.** A pinned Action with a hash-verified bundled parser; no secrets, `contents: read` only.
 
-Security-relevant workflow edits are often one line in a large diff:
-`contents: read` becomes `write`, a `pull_request_target` trigger appears, a
-reusable-workflow call gains `secrets: inherit`, or a release job starts running
-a new third-party action. This tool answers one question: **what did this PR
-change about what the workflows are allowed to do?** Configuration that didn't
-change produces no output, so the report contains only the difference.
+## What it catches
 
-### Use it alongside zizmor
+A PR edits a release workflow:
 
-[zizmor](https://github.com/zizmorcore/zizmor) audits the current state of a
-workflow for risky patterns, and with GitHub code scanning a PR shows the alerts
-it introduced. Many privilege increases never become a new alert, because the
-result isn't "bad" by a state rule: a job gaining `id-token: write`, a new
-secret reference, a changed environment, or a new action receiving write access.
+```diff
+ name: Release
+-on: push
++on: [push, pull_request_target]
+ permissions: {}
+ jobs:
+   publish:
+     runs-on: ubuntu-latest
+     permissions:
+-      contents: read
++      contents: write
++      id-token: write
+     steps:
+       - uses: actions/checkout@v4
+       - run: make dist
++      - uses: someone/release-action@v1
++        with:
++          token: ${{ secrets.RELEASE_TOKEN }}
+```
 
-On the [74 historical PRs](benchmarks/README.md), this tool reported 69 findings.
-For 43 of them (62%), zizmor 1.32 (pedantic, offline) reported no new finding of
-a related audit in the same workflow and job; for new secret references, none of
-8. Reproduce with `scripts/compare_zizmor.py`. Run zizmor for what is dangerous,
-and this for what got wider.
+Remit annotates five lines of that diff:
 
-## Example
+| Line | Rule | Finding |
+|---|---|---|
+| 2 | WF003 | Review-sensitive trigger `pull_request_target` introduced. |
+| 8 | WF001 | Job publish is newly configured to use `contents: write`. |
+| 9 | WF001 | Job publish is newly configured to request an OIDC identity token. |
+| 13 | WF009 | Job publish now runs third-party code from `someone/release-action@v1`, which can use `contents: write`; `id-token: write`; secrets: `RELEASE_TOKEN`. |
+| 15 | WF004 | Job publish adds a reference or forwarding path to `RELEASE_TOKEN`. |
 
-Adding a `pull_request_target` trigger, OIDC and package write access, and a
-new secret to a release workflow produces this
-([full sample](examples/sample-report.md)):
+The job summary groups the same findings by workflow and job, with a question
+for the reviewer on each ([sample](https://github.com/adi271213/remit/blob/main/examples/sample-report.md)).
+JSON and SARIF reports carry the same data for tooling and GitHub code scanning.
 
-| Rule | Before | After | Change |
-|---|---|---|---|
-| WF003 | Not recorded | pull_request_target | Review-sensitive trigger pull_request_target introduced. |
-| WF001 | id-token: none; packages: none | id-token: write; packages: write | Job publish gains 2 higher token permission scopes, including an OIDC identity token. |
-| WF004 | Not recorded | PUBLISH_TOKEN | Job publish adds a reference or forwarding path to PUBLISH_TOKEN. |
+## Quick start
 
-In a pull request, each finding also appears as an annotation on the line that
-introduced it, in the **Files changed** tab. The job summary groups findings by
-workflow and job, with a short question for the reviewer. The JSON report
-([sample](examples/sample-report.json)) has the same data for tooling, and a
-SARIF report can go to GitHub code scanning ([setup](SETUP.md#code-scanning-optional)).
+1. Copy [`examples/github-action-template.yml`](https://github.com/adi271213/remit/blob/main/examples/github-action-template.yml)
+   (45 lines) to `.github/workflows/remit.yml`.
+2. Merge it.
+3. Open a pull request that touches a workflow and look at *Files changed*.
+
+The template checks out the base commit, fetches the PR head without checking it
+out, and runs the Action pinned to a full commit SHA:
+
+```yaml
+- uses: adi271213/remit@8d8ce7f1b841d3b232d7216be993ae1cb6399867 # v0.1.0
+  with:
+    mode: advisory
+```
+
+Use the whole template rather than this step alone: the step needs both commits
+in the local clone. The [setup guide](https://github.com/adi271213/remit/blob/main/SETUP.md)
+covers inputs, outputs, code scanning and troubleshooting.
 
 ## Rules
 
@@ -66,28 +93,25 @@ SARIF report can go to GitHub code scanning ([setup](SETUP.md#code-scanning-opti
 | WF008 | A matrix job pairs a runner with a different environment while the overall runner and environment sets stay the same |
 | WF009 | Third-party code (an action or reusable workflow) newly runs in a job with write scopes, OIDC, secrets or an environment |
 
-See [docs/RULES.md](docs/RULES.md) for the exact behaviour of each rule.
+[docs/RULES.md](https://github.com/adi271213/remit/blob/main/docs/RULES.md) describes the exact behaviour of each rule.
 
-## Quick start
+## Remit and zizmor
 
-Copy the 45-line [`examples/github-action-template.yml`](examples/github-action-template.yml)
-into `.github/workflows/` and merge it. The template checks out the base commit,
-fetches the PR head without checking it out, and runs the Action pinned to a
-full commit SHA:
+[zizmor](https://github.com/zizmorcore/zizmor) audits what your workflows *are*
+for risky patterns. Remit reports what a pull request *changed*, including
+increases that never become a zizmor alert because the end state isn't "bad"
+by a state rule: a job gaining `id-token: write`, a new secret reference, a
+changed environment, or a new action receiving write access.
 
-```yaml
-- uses: adi271213/remit@8d8ce7f1b841d3b232d7216be993ae1cb6399867 # v0.1.0
-  with:
-    mode: advisory
-```
-
-The step needs both commits in the local clone, so use the full template rather
-than this step on its own. [SETUP.md](SETUP.md) covers inputs, outputs and
-troubleshooting.
+On [74 historical public PRs](https://github.com/adi271213/remit/blob/main/benchmarks/README.md),
+Remit reported 69 findings. For 43 of them (62%), zizmor 1.32 (pedantic,
+offline) reported no new finding of a related audit in the same workflow and
+job, including all 8 new secret references. Run zizmor for what is dangerous,
+and Remit for what got wider.
 
 ## Results
 
-Every run produces an **analysis** status and a **review** status:
+Every run reports an **analysis** status and a **review** status:
 
 | Analysis | Meaning | CLI exit | `require-complete` (default) | `advisory` |
 |---|---|---|---|---|
@@ -96,18 +120,18 @@ Every run produces an **analysis** status and a **review** status:
 | `error` | Some input couldn't be parsed or read | 2 | fail | pass with warning |
 
 Review is `suggested` when there are findings, `none` when analysis is complete
-with no findings, and (in the Action) `unknown` when analysis is not complete and
-nothing was found. Known findings are still reported alongside incomplete or
-failed parts.
+with no findings, and (in the Action) `unknown` when analysis is incomplete and
+nothing was found. Known findings are reported alongside incomplete or failed parts.
 
-**Findings never fail the step.** This is a review aid, not a merge gate: a
-clean report does not mean a PR is safe, and a PR can edit the workflow that
-runs the check.
+**Findings never fail the step.** Remit is a review aid, not a merge gate: a
+clean report doesn't mean a PR is safe, and a PR can edit the workflow that runs
+the check.
 
-### Inherited token permissions
+<details>
+<summary><b>Inherited token permissions</b></summary>
 
 A job without a `permissions` block gets the repository or organization default,
-which this tool can't see. When a PR adds such a job, or removes a job's
+which Remit can't see. When a PR adds such a job, or removes a job's
 `permissions` block, WF002 asks the author to declare permissions explicitly.
 When a job that used the default starts declaring permissions, only levels above
 GitHub's narrowest possible default (`contents: read`, `packages: read`) are
@@ -119,7 +143,10 @@ default instead, pass it in:
     default-permissions: '{"contents": "read"}'
 ```
 
-## Limitations
+</details>
+
+<details>
+<summary><b>Limitations</b></summary>
 
 - Only top-level `.github/workflows/*.yml` and `*.yaml` files are read. Called
   reusable workflows, actions and scripts are not followed.
@@ -135,27 +162,33 @@ default instead, pass it in:
   is treated as a new file and can produce findings for unchanged settings.
 - Input limits: 200 workflow files and 4 MiB per commit, 256 KiB per file.
 
+</details>
+
 ## Command line
 
 ```sh
-pip install remit   # or, from a clone: pip install -e .
-remit scan --dirs examples/base examples/head --format markdown
-remit scan --repo /path/to/repo --base main --head my-branch
+pip install remit
+remit scan --repo . --base main --head my-branch --format markdown
+remit scan --dirs path/to/before path/to/after --format sarif --output remit.sarif
 ```
 
 Output is JSON by default; `--format markdown` and `--format sarif` are also
-available. `--output FILE` writes the report to a file, `--summary FILE` appends
-the Markdown summary and `--sarif FILE` also writes SARIF for code scanning. The exit code is 0 for complete
-analysis and 2 otherwise.
+available. `--summary FILE` appends the Markdown summary and `--sarif FILE`
+also writes SARIF. The exit code is 0 for complete analysis and 2 otherwise.
 
 ## Status
 
-Early (0.x): the JSON format and rule set may still change. Each release is tested with the unit and integration
-suite on Python 3.11–3.14, an end-to-end run of the Action with networking
-disabled, and a replay of [74 historical public PRs](benchmarks/README.md). The
-replay's expected results were labelled by the project, so treat it as a
-regression suite rather than an accuracy measurement.
+Early (0.x): the JSON format and rule set may still change. Each release runs the
+test suite on Python 3.11–3.14, runs the Action end to end with networking
+disabled, and replays 74 historical public PRs. The replay's expected results
+were labelled by the project, so treat it as a regression suite rather than an
+accuracy measurement. Feedback from real repositories is the most useful thing
+you can send: open a [trial feedback issue](https://github.com/adi271213/remit/issues/new?template=trial_feedback.md).
 
-[Setup](SETUP.md) · [Rules](docs/RULES.md) · [Architecture](docs/ARCHITECTURE.md) ·
-[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) ·
-[MIT license](LICENSE)
+[Setup](https://github.com/adi271213/remit/blob/main/SETUP.md) ·
+[Rules](https://github.com/adi271213/remit/blob/main/docs/RULES.md) ·
+[Architecture](https://github.com/adi271213/remit/blob/main/docs/ARCHITECTURE.md) ·
+[Contributing](https://github.com/adi271213/remit/blob/main/CONTRIBUTING.md) ·
+[Security](https://github.com/adi271213/remit/blob/main/SECURITY.md) ·
+[Changelog](https://github.com/adi271213/remit/blob/main/CHANGELOG.md) ·
+[MIT license](https://github.com/adi271213/remit/blob/main/LICENSE)
