@@ -82,6 +82,39 @@ jobs:
 The Markdown summary is also written to the job summary. The Action posts no PR
 comments and sends nothing to external services.
 
+## Scheduled audit
+
+To check what is already in the repository, not only what pull requests change,
+run `remit audit` on a schedule. It reports WF010 and WF011 in the current
+workflows and local actions:
+
+```yaml
+name: Remit audit
+on:
+  schedule:
+    - cron: "17 6 * * 1"   # weekly
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - run: pip install remit==1
+      - run: remit audit --repo . --format markdown --summary "$GITHUB_STEP_SUMMARY" --fail-on-findings
+```
+
+The job fails when the audit finds something, and the findings are in the job
+summary. Add `--sarif remit-audit.sarif` and an upload step (see below) to keep
+them in the Security tab; audit results use their own code scanning category, so
+they don't interfere with pull request results.
+
 ## Code scanning (optional)
 
 If your repository uses GitHub code scanning, you can also send findings to the

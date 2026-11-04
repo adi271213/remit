@@ -72,7 +72,7 @@ The template checks out the base commit, fetches the PR head without checking it
 out, and runs the Action pinned to a full commit SHA:
 
 ```yaml
-- uses: adi271213/remit@de8aff49443ec63e1ac2bcd860762d917d26e0e7 # v1
+- uses: adi271213/remit@a33ed90b90d451c9e8a092218d8e000fe64eb2c8 # v1
   with:
     mode: advisory
 ```
@@ -182,6 +182,27 @@ remit scan --dirs path/to/before path/to/after --format sarif --output remit.sar
 Output is JSON by default; `--format markdown` and `--format sarif` are also
 available. `--summary FILE` appends the Markdown summary and `--sarif FILE`
 also writes SARIF. The exit code is 0 for complete analysis and 2 otherwise.
+
+## Audit an existing repository
+
+Pull request checks only see what a PR changes. `remit audit` reports what is
+already there: every place a `pull_request_target`, `workflow_run` or
+`issue_comment` job brings in pull request content (WF010), and every mutable
+checkout after a label, comment or environment approval (WF011), including
+through local actions and reusable workflows.
+
+```sh
+remit audit --repo .                          # the current commit
+remit audit --repo . --ref v2.3.0             # any commit or tag
+remit audit --dir path/to/checkout --format markdown
+remit audit --repo . --format sarif --output remit-audit.sarif
+```
+
+Like `scan`, it reads committed Git objects (or a directory) as data and runs
+nothing. The exit code is 0 for a complete audit, 2 when something couldn't be
+analysed, and with `--fail-on-findings`, 1 when the audit found something. The
+[setup guide](https://github.com/adi271213/remit/blob/main/SETUP.md#scheduled-audit)
+has a weekly scheduled audit workflow.
 
 ## Status
 

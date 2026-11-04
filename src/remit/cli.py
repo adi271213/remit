@@ -5,49 +5,80 @@ import sys
 
 from .report import markdown
 from .sarif import sarif
-from .scan import compare, error_report, permissions
+from .scan import audit, compare, error_report, permissions
 from .sources import InputError, directory, git_snapshot
+
+
+def _outputs(parser):
+    parser.add_argument("--default-permissions", help='Trusted explicit JSON map, for example {"contents":"read"}')
+    parser.add_argument("--format", choices=("json", "markdown", "sarif"), default="json")
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--summary", type=Path, help="Explicit path to append a Markdown job summary")
+    parser.add_argument("--sarif", type=Path, help="Also write a SARIF 2.1.0 report to this path")
+
+
+def _defaults(value):
+    if value is None:
+        return None
+    try:
+        defaults = json.loads(value)
+        if not isinstance(defaults, dict):
+            raise ValueError("Explicit map required")
+        return permissions(defaults)
+    except (ValueError, TypeError) as exc:
+        raise InputError("Default permissions must be a supported explicit JSON permission map.") from exc
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="remit")
     commands = parser.add_subparsers(dest="command", required=True)
-    scan = commands.add_parser("scan", help="Report supported changes without executing workflow code")
+
+    scan = commands.add_parser("scan", help="Report what a change does to workflow privileges")
     source = scan.add_mutually_exclusive_group(required=True)
     source.add_argument("--dirs", nargs=2, metavar=("BASE_DIR", "HEAD_DIR"))
     source.add_argument("--repo", help="Local Git repository; reads objects without checkout")
     scan.add_argument("--base", help="Base ref, resolved and recorded as an exact commit")
     scan.add_argument("--head", help="Head ref, resolved and recorded as an exact commit")
-    scan.add_argument("--default-permissions", help='Trusted explicit JSON map, for example {"contents":"read"}')
-    scan.add_argument("--format", choices=("json", "markdown", "sarif"), default="json")
-    scan.add_argument("--output", type=Path)
-    scan.add_argument("--summary", type=Path, help="Explicit path to append a Markdown job summary")
-    scan.add_argument("--sarif", type=Path, help="Also write a SARIF 2.1.0 report to this path")
+    _outputs(scan)
+
+    check = commands.add_parser("audit", help="Report pull request content reachable from privileged workflows now "
+                                              "(WF010, WF011)")
+    target = check.add_mutually_exclusive_group(required=True)
+    target.add_argument("--dir", help="Directory containing .github/workflows")
+    target.add_argument("--repo", help="Local Git repository; reads objects without checkout")
+    check.add_argument("--ref", help="Commit or ref to audit with --repo (default: HEAD)")
+    check.add_argument("--fail-on-findings", action="store_true",
+                       help="Exit 1 when the audit is complete and has findings")
+    _outputs(check)
+
     args = parser.parse_args(argv)
-    if args.repo and (not args.base or not args.head):
-        parser.error("--repo requires --base and --head")
-    if args.dirs and (args.base or args.head):
-        parser.error("--base and --head are only used with --repo")
+    if args.command == "scan":
+        if args.repo and (not args.base or not args.head):
+            parser.error("--repo requires --base and --head")
+        if args.dirs and (args.base or args.head):
+            parser.error("--base and --head are only used with --repo")
+    elif args.dir and args.ref:
+        parser.error("--ref is only used with --repo")
+
     try:
-        defaults = None
-        if args.default_permissions is not None:
-            try:
-                defaults = json.loads(args.default_permissions)
-                if not isinstance(defaults, dict):
-                    raise ValueError("Explicit map required")
-                defaults = permissions(defaults)
-            except (ValueError, TypeError) as exc:
-                raise InputError("Default permissions must be a supported explicit JSON permission map.") from exc
-        if args.dirs:
-            base, head = (directory(path) for path in args.dirs)
+        defaults = _defaults(args.default_permissions)
+        if args.command == "audit":
+            snapshot = directory(args.dir) if args.dir else git_snapshot(args.repo, args.ref or "HEAD")
+            result = audit(snapshot, defaults)
         else:
-            base = git_snapshot(args.repo, args.base)
-            head = git_snapshot(args.repo, args.head)
-        result = compare(base, head, defaults)
+            if args.dirs:
+                base, head = (directory(path) for path in args.dirs)
+            else:
+                base = git_snapshot(args.repo, args.base)
+                head = git_snapshot(args.repo, args.head)
+            result = compare(base, head, defaults)
     except (InputError, OSError) as exc:
         # Do not echo filesystem errors, source text, credentials, or git stderr.
         reason = str(exc) if isinstance(exc, InputError) else "Could not read comparison inputs."
         result = error_report(reason)
+        if args.command == "audit":
+            result["mode"] = "audit"
+
     if args.format == "markdown":
         text = markdown(result)
     else:
@@ -65,4 +96,6 @@ def main(argv=None) -> int:
     except OSError:
         print("Could not write report output.", file=sys.stderr)
         return 2
-    return 0 if result["analysis"] == "complete" else 2
+    if result["analysis"] != "complete":
+        return 2
+    return 1 if args.command == "audit" and args.fail_on_findings and result["findings"] else 0
