@@ -101,9 +101,12 @@ class ActionOutcomes(unittest.TestCase):
             workflow = repo / ".github/workflows/ci.yml"
             workflow.parent.mkdir(parents=True)
             workflow.write_text("on: push\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps: [{run: echo fixture}]\n")
-            git("add", "."); git("commit", "-qm", "base"); base = git("rev-parse", "HEAD")
+            git("add", ".")
+            git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD")
             workflow.write_text(workflow.read_text().replace("permissions: {}", "permissions: {contents: write}"))
-            git("commit", "-qam", "head"); head = git("rev-parse", "HEAD")
+            git("commit", "-qam", "head")
+            head = git("rev-parse", "HEAD")
             env = {**os.environ, "RUNNER_TEMP": temp, "PRIVILEGE_MODE": "advisory", "PRIVILEGE_BASE": base,
                    "PRIVILEGE_HEAD": head, "PRIVILEGE_DEFAULTS": "", "PRIVILEGE_REPOSITORY": str(repo),
                    "GITHUB_OUTPUT": str(root / "out"), "GITHUB_STEP_SUMMARY": str(root / "summary")}
@@ -123,9 +126,30 @@ class ActionOutcomes(unittest.TestCase):
 
     def test_reporting_failure_does_not_return_advisory_success(self):
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
             with self.assertRaises(OSError):
                 # A directory cannot be a GITHUB_OUTPUT file. The executable's
                 # outer handler turns this failure into exit 2.
                 with patch.dict(os.environ, {"RUNNER_TEMP": temp, "PRIVILEGE_MODE": "advisory", "GITHUB_OUTPUT": temp}, clear=True), patch.object(runner, "execute", return_value=1), redirect_stdout(io.StringIO()):
                     runner.run()
+
+
+class Annotations(unittest.TestCase):
+    def test_findings_become_line_annotations_with_escaped_text(self):
+        finding = {"rule": "WF005", "file": ".github/workflows/ci.yml", "line": 7,
+                   "message": "Runner prod,%\n::error::forged changed."}
+        with patch.dict(os.environ, {"PRIVILEGE_REPOSITORY": ".", "GITHUB_WORKSPACE": os.getcwd()}, clear=True):
+            [line] = runner.annotations([finding])
+        self.assertEqual(line, "::warning file=.github/workflows/ci.yml,line=7,title=WF005 review suggested"
+                               "::Runner prod,%25%0A::error::forged changed.")
+        self.assertNotIn("\n", line)
+
+    def test_annotations_are_capped_and_paths_follow_repository_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            (Path(temp) / "sub").mkdir()
+            findings = [{"rule": "WF001", "file": ".github/workflows/ci.yml", "line": None, "message": "m"}] * 12
+            with patch.dict(os.environ, {"PRIVILEGE_REPOSITORY": str(Path(temp) / "sub"), "GITHUB_WORKSPACE": temp},
+                            clear=True):
+                lines = runner.annotations(findings)
+        self.assertEqual(len(lines), 11)
+        self.assertTrue(lines[0].startswith("::warning file=sub/.github/workflows/ci.yml,title="))
+        self.assertIn("2 more findings", lines[-1])

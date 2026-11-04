@@ -29,18 +29,20 @@ new secret to a release workflow produces this
 | Rule | Before | After | Change |
 |---|---|---|---|
 | WF003 | Not recorded | pull_request_target | Review-sensitive trigger pull_request_target introduced. |
-| WF001 | id-token: none | id-token: write | Job publish is newly configured to request an OIDC identity token. |
-| WF001 | packages: none | packages: write | Job publish is newly configured to use packages: write. |
+| WF001 | id-token: none; packages: none | id-token: write; packages: write | Job publish gains 2 higher token permission scopes, including an OIDC identity token. |
 | WF004 | Not recorded | PUBLISH_TOKEN | Job publish adds a reference or forwarding path to PUBLISH_TOKEN. |
 
-Each group of findings comes with a short question for the reviewer. The JSON
-report ([sample](examples/sample-report.json)) has the same data for tooling.
+In a pull request, each finding also appears as an annotation on the line that
+introduced it, in the **Files changed** tab. The job summary groups findings by
+workflow and job, with a short question for the reviewer. The JSON report
+([sample](examples/sample-report.json)) has the same data for tooling.
 
 ## Rules
 
 | Rule | Reports |
 |---|---|
 | WF001 | A job's token scope increases (`none` → `read` → `write`), including new `id-token: write` (OIDC) |
+| WF002 | A job starts relying on the repository's default token permissions, or replaces them with permissions that may exceed the default |
 | WF003 | A newly added `pull_request_target`, `workflow_run`, `issue_comment`, `issues`, `discussion` or `discussion_comment` trigger |
 | WF004 | A job newly references a secret, or forwards all secrets (`secrets: inherit`, `toJSON(secrets)`) |
 | WF005 | A job's runner changes to a self-hosted, custom-label, runner-group or unresolvable selection |
@@ -51,7 +53,7 @@ See [docs/RULES.md](docs/RULES.md) for the exact behaviour of each rule.
 
 ## Quick start
 
-Copy [`examples/github-action-template.yml`](examples/github-action-template.yml)
+Copy the 45-line [`examples/github-action-template.yml`](examples/github-action-template.yml)
 into `.github/workflows/` and merge it. The template checks out the base commit,
 fetches the PR head without checking it out, and runs the Action pinned to a
 full commit SHA:
@@ -73,7 +75,7 @@ Every run produces an **analysis** status and a **review** status:
 | Analysis | Meaning | CLI exit | `require-complete` (default) | `advisory` |
 |---|---|---|---|---|
 | `complete` | All changed workflows were compared | 0 | pass | pass |
-| `incomplete` | Some context is unknown, e.g. inherited token defaults or a dynamic expression | 2 | fail | pass with warning |
+| `incomplete` | Some context is unknown, e.g. a dynamic expression | 2 | fail | pass with warning |
 | `error` | Some input couldn't be parsed or read | 2 | fail | pass with warning |
 
 Review is `suggested` when there are findings, `none` when analysis is complete
@@ -87,10 +89,13 @@ runs the check.
 
 ### Inherited token permissions
 
-A job without a `permissions` block inherits the repository or organization
-default, which this tool can't see. A new job like that makes the analysis
-`incomplete`. Either declare `permissions` explicitly in your workflows
-(recommended anyway) or tell the tool your default:
+A job without a `permissions` block gets the repository or organization default,
+which this tool can't see. When a PR adds such a job, or removes a job's
+`permissions` block, WF002 asks the author to declare permissions explicitly.
+When a job that used the default starts declaring permissions, only levels above
+GitHub's narrowest possible default (`contents: read`, `packages: read`) are
+reported, so ordinary hardening PRs stay quiet. To compare against your real
+default instead, pass it in:
 
 ```yaml
   with:
@@ -116,8 +121,7 @@ default, which this tool can't see. A new job like that makes the analysis
 ## Command line
 
 ```sh
-python3 -m venv .venv && . .venv/bin/activate
-pip install -e .
+pip install workflow-privilege-check   # or, from a clone: pip install -e .
 workflow-privilege-check scan --dirs examples/base examples/head --format markdown
 workflow-privilege-check scan --repo /path/to/repo --base main --head my-branch
 ```
@@ -128,7 +132,7 @@ analysis and 2 otherwise.
 
 ## Status
 
-Experimental (0.0.x). Each release is tested with the unit and integration
+Early (0.x): the JSON format and rule set may still change. Each release is tested with the unit and integration
 suite on Python 3.11–3.14, an end-to-end run of the Action with networking
 disabled, and a replay of [74 historical public PRs](benchmarks/README.md). The
 replay's expected results were labelled by the project, so treat it as a

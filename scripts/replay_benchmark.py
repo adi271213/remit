@@ -93,4 +93,4 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except (ValueError, OSError) as exc:
         print("Replay failed: " + str(exc), file=sys.stderr)
-        raise SystemExit(2)
+        raise SystemExit(2) from None

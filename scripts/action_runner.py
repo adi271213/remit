@@ -9,6 +9,7 @@ import tempfile
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
+MAX_ANNOTATIONS = 10  # GitHub displays at most 10 warning annotations per step.
 OUTPUT_KEYS = ("analysis-status", "review-status", "finding-count", "analysis-exit-code",
                "report-path", "summary-path", "base-sha", "head-sha")
 
@@ -17,7 +18,7 @@ def bootstrap(root):
     # Only files from the pinned Action checkout are imported by the child.
     # No venv, package installer, optional binary extension, or network is needed.
     try:
-        if sys.version_info < (3, 11):
+        if sys.version_info < (3, 11):  # noqa: UP036 - the runner's python3 may be older than the package floor
             raise ValueError("Python 3.11 required")
         vendor = root / "vendor/pyyaml"
         manifest = json.loads((vendor / "manifest.json").read_text())
@@ -55,6 +56,39 @@ def error_report(reason):
             "diagnostics": [{"file": "action", "side": "execution", "job": None,
                              "kind": "error", "reason": reason}],
             "limitations": ["No successful analysis was established. Inspect workflow logs; do not infer PR safety."]}
+
+
+def _escape(text, *, prop=False):
+    """Escape workflow-command text so repository-controlled values cannot inject commands."""
+    text = str(text).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    return text.replace(":", "%3A").replace(",", "%2C") if prop else text
+
+
+def annotation_path(file):
+    """Make a finding path relative to the workspace, where annotations are anchored."""
+    repo = Path(os.environ.get("PRIVILEGE_REPOSITORY") or ".").resolve()
+    workspace = Path(os.environ.get("GITHUB_WORKSPACE") or os.getcwd()).resolve()
+    try:
+        return (repo.relative_to(workspace) / file).as_posix()
+    except ValueError:
+        return file
+
+
+def annotations(findings):
+    """Workflow commands that place each finding on its line in the PR diff."""
+    lines = []
+    for item in findings[:MAX_ANNOTATIONS]:
+        if not isinstance(item.get("file"), str):
+            continue
+        props = "file=" + _escape(annotation_path(item["file"]), prop=True)
+        if isinstance(item.get("line"), int):
+            props += ",line=" + str(item["line"])
+        props += ",title=" + _escape(f"{item['rule']} review suggested", prop=True)
+        lines.append(f"::warning {props}::{_escape(item['message'])}")
+    if len(findings) > MAX_ANNOTATIONS:
+        lines.append(f"::notice title=More findings::{len(findings) - MAX_ANNOTATIONS} more findings are listed "
+                     "in the job summary.")
+    return lines
 
 
 def run():
@@ -110,13 +144,20 @@ def run():
         with open(target, "a", encoding="utf-8") as handle:
             handle.write(summary)
     print("::group::Workflow privilege report")
+    # Repository-controlled report text must never be interpreted as workflow commands.
+    token = "wpc-" + uuid.uuid4().hex
+    print(f"::stop-commands::{token}")
     print(report_path.read_text(encoding="utf-8"), end="")
+    print(f"::{token}::")
     print("::endgroup::")
+    for line in annotations(report["findings"]):
+        print(line)
     if report["analysis"] != "complete":
         print("::warning title=Workflow privilege analysis " + report["analysis"]
               + "::Analysis did not complete. Review the job summary; no clean result was established.")
     elif report["findings"]:
-        print("::notice title=Workflow privilege review suggested::Configured capability changes require human review; see the job summary.")
+        print("::notice title=Workflow privilege review suggested::Configured capability changes require human "
+              "review; see the job summary.")
     return 0 if mode == "advisory" else code
 
 
@@ -124,5 +165,6 @@ if __name__ == "__main__":
     try:
         raise SystemExit(run())
     except OSError:
-        print("::error title=Workflow privilege reporting failed::Could not create or publish Action reports.", file=sys.stderr)
-        raise SystemExit(2)
+        print("::error title=Workflow privilege reporting failed::Could not create or publish Action reports.",
+              file=sys.stderr)
+        raise SystemExit(2) from None

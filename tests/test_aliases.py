@@ -21,6 +21,10 @@ def scan(base, head):
     return compare(Snapshot("base", {WF: base}), Snapshot("head", {WF: head}))
 
 
+def without_lines(report):
+    return {**report, "findings": [{k: v for k, v in f.items() if k != "line"} for f in report["findings"]]}
+
+
 class AliasTests(unittest.TestCase):
     def test_security_and_context_cases(self):
         for case in CASES:
@@ -41,7 +45,8 @@ class AliasTests(unittest.TestCase):
             with self.subTest(case=case["case"]):
                 base, head = (yaml.dump(parse(case[side]), Dumper=InlineDumper)
                               for side in ("base", "head"))
-                self.assertEqual(scan(case["base"], case["head"]), scan(base, head))
+                # Source lines legitimately differ once aliases are inlined.
+                self.assertEqual(without_lines(scan(case["base"], case["head"])), without_lines(scan(base, head)))
 
     def test_rejected_graphs_never_reach_construction(self):
         for name in ("alias-cycle", "alias-hidden-bomb", "alias-matrix-bomb", "alias-scalar-bomb"):

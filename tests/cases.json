@@ -53,15 +53,15 @@
   },
   {
     "id": "P05",
-    "title": "Introduce unknown inherited defaults",
+    "title": "Switch to inherited default permissions",
     "base": {
       ".github/workflows/ci.yml": "'on': push\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
     },
     "head": {
       ".github/workflows/ci.yml": "'on': push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n    - run: echo fixture-only\n"
     },
-    "expected": "incomplete",
-    "rule": null,
+    "expected": "grant",
+    "rule": "WF002",
     "group": "core"
   },
   {

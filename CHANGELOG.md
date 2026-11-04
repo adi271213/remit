@@ -2,15 +2,36 @@
 
 ## Unreleased
 
-- Support the `models` token permission scope (`none`/`read`). Previously any
-  change to a workflow declaring `models: read` produced an analysis error.
+## 0.1.0 (release date set when tagged)
+
+- **New rule WF002:** a new job, or a job that drops its `permissions` block,
+  relying on the repository's default token permissions is now a finding that
+  asks for explicit permissions. Previously it made the analysis `incomplete`,
+  which failed the default `require-complete` mode on ordinary "add a workflow"
+  PRs. A job that moves from inherited to explicit permissions is compared with
+  GitHub's narrowest default (`contents: read`, `packages: read`): hardening
+  changes stay quiet, and anything above it is a WF002 finding. In the 74-PR
+  replay, all reports are now complete (previously 12 were incomplete).
+- **Pull request annotations:** each finding records the head `line` that
+  introduced it, and the Action shows up to 10 findings as annotations in the
+  PR's Files changed tab. Annotation text is escaped, and the JSON report is
+  printed with workflow commands disabled.
+- Markdown reports show one WF001 row per job, so `write-all` is one row
+  instead of eighteen; JSON still has one finding per scope.
+- Support the `models` token permission scope. Previously any change to a
+  workflow declaring `models: read` produced an analysis error.
 - Markdown reports group findings under one heading per workflow file and show
   `unavailable` instead of `None` when no commit was resolved.
+- 45-line install template; the separate result-explanation step is replaced by
+  the Action's own annotations and notices.
+- The repository runs its own Action on every PR, loaded from the base commit.
+- CI lints with ruff. A release workflow publishes to PyPI with hash-pinned
+  build tools and trusted publishing.
 - Regenerate the stale sample JSON report and test that both samples match the
   current output.
 - Consolidate documentation into README, SETUP, docs/RULES.md and
-  docs/ARCHITECTURE.md. Release verification evidence belongs in GitHub release
-  notes from now on; earlier evidence files remain in Git history.
+  docs/ARCHITECTURE.md. Release evidence belongs in GitHub release notes;
+  earlier evidence files remain in Git history.
 
 ## 0.0.4 — 2026-10-30
 

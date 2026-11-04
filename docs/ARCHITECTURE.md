@@ -5,7 +5,7 @@
 | Path | Responsibility |
 |---|---|
 | `scripts/run-action.sh` | Action entry point. Starts the controller with `python3 -I` so nothing is imported from the checked-out repository or `PYTHONPATH`. |
-| `scripts/action_runner.py` | Stdlib-only controller. Verifies the bundled PyYAML against its SHA-256 manifest, runs the scanner in a child process with a 90 s timeout, checks the report is consistent with the exit code, and publishes outputs and the job summary. Any setup failure still produces an explicit `error` report. |
+| `scripts/action_runner.py` | Stdlib-only controller. Verifies the bundled PyYAML against its SHA-256 manifest, runs the scanner in a child process with a 90 s timeout, checks the report is consistent with the exit code, and publishes outputs and the job summary. Any setup failure still produces an explicit `error` report. Findings become line annotations; all repository-controlled text in commands is escaped, and the report is printed between `::stop-commands::` markers. |
 | `scripts/action_entry.py` | Resolves base/head SHAs from inputs or the PR event and calls the CLI. |
 | `src/privilege_check/cli.py` | Argument parsing, report output, exit codes. |
 | `src/privilege_check/sources.py` | Reads workflow files from a directory or from Git objects, with size limits. |
@@ -67,7 +67,7 @@ schemaVersion        report format version, independent of the package version
 base, head           commit SHAs, or directory content hashes for --dirs
 analysis             complete | incomplete | error
 review               none | suggested
-findings[]           rule, file, job, before, after, message
+findings[]           rule, file, job, line, before, after, message
 diagnostics[]        file, side, job, kind (incomplete | error), reason
 renames[]            exact-content renames that were skipped
 examinedFiles[]      files that changed and were compared
