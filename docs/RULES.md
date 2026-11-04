@@ -87,7 +87,7 @@ Property names keep their hyphens, so `inputs.use-secrets` is not a secrets read
 Reported when a job's `runs-on` changes and the new selection contains any of:
 
 - the `self-hosted` label or a label not in the list of GitHub-hosted labels in
-  [`contexts.py`](../src/privilege_check/contexts.py);
+  [`contexts.py`](../src/remit/contexts.py);
 - a runner `group`;
 - an expression that can't be resolved.
 
@@ -124,7 +124,7 @@ head: ubuntu-latest -> staging;    self-hosted -> production
 Each matrix row's (runner labels, group, environment) tuple is compared. A pair
 that exists in the head but not the base is a finding. Removing pairs is quiet,
 and changes already reported by WF005 or WF007 aren't reported again. Try it
-with `workflow-privilege-check scan --dirs examples/association-base examples/association-head --format markdown`.
+with `remit scan --dirs examples/association-base examples/association-head --format markdown`.
 
 ## WF009: new third-party code in a privileged job
 

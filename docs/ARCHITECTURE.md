@@ -7,14 +7,14 @@
 | `scripts/run-action.sh` | Action entry point. Starts the controller with `python3 -I` so nothing is imported from the checked-out repository or `PYTHONPATH`. |
 | `scripts/action_runner.py` | Stdlib-only controller. Verifies the bundled PyYAML against its SHA-256 manifest, runs the scanner in a child process with a 90 s timeout, checks the report is consistent with the exit code, and publishes outputs and the job summary. Any setup failure still produces an explicit `error` report. Findings become line annotations; all repository-controlled text in commands is escaped, and the report is printed between `::stop-commands::` markers. |
 | `scripts/action_entry.py` | Resolves base/head SHAs from inputs or the PR event and calls the CLI. |
-| `src/privilege_check/cli.py` | Argument parsing, report output, exit codes. |
-| `src/privilege_check/sources.py` | Reads workflow files from a directory or from Git objects, with size limits. |
-| `src/privilege_check/scan.py` | YAML parsing, rename detection, WF001–WF004 and WF009, and assembly of the report. |
-| `src/privilege_check/contexts.py` | WF005/WF007/WF008: runner and environment normalisation and matrix expansion. |
-| `src/privilege_check/expressions.py` | Identifier grammar shared by secret and matrix parsing. |
-| `src/privilege_check/yaml_limits.py` | Bounds the composed YAML graph before any Python objects are built. |
-| `src/privilege_check/report.py` | Markdown rendering with all repository-controlled text escaped. |
-| `src/privilege_check/sarif.py` | SARIF 2.1.0 output with rule metadata and line-independent fingerprints. |
+| `src/remit/cli.py` | Argument parsing, report output, exit codes. |
+| `src/remit/sources.py` | Reads workflow files from a directory or from Git objects, with size limits. |
+| `src/remit/scan.py` | YAML parsing, rename detection, WF001–WF004 and WF009, and assembly of the report. |
+| `src/remit/contexts.py` | WF005/WF007/WF008: runner and environment normalisation and matrix expansion. |
+| `src/remit/expressions.py` | Identifier grammar shared by secret and matrix parsing. |
+| `src/remit/yaml_limits.py` | Bounds the composed YAML graph before any Python objects are built. |
+| `src/remit/report.py` | Markdown rendering with all repository-controlled text escaped. |
+| `src/remit/sarif.py` | SARIF 2.1.0 output with rule metadata and line-independent fingerprints. |
 
 ## Trust boundary
 

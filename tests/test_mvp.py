@@ -12,10 +12,10 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from privilege_check.cli import main
-from privilege_check.report import markdown
-from privilege_check.scan import compare, permissions
-from privilege_check.sources import InputError, MAX_FILE, Snapshot, directory, git_snapshot
+from remit.cli import main
+from remit.report import markdown
+from remit.scan import compare, permissions
+from remit.sources import InputError, MAX_FILE, Snapshot, directory, git_snapshot
 
 WF = ".github/workflows/ci.yml"
 BASE = "on: push\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n"
