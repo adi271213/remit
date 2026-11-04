@@ -5,7 +5,7 @@ inputs:
     description: 'require-complete exits 2 on incomplete/error; advisory reports these outcomes without failing. Findings alone never fail the step.'
     default: require-complete
   base:
-    description: Base commit SHA; defaults to the PR event base SHA.
+    description: Base commit SHA. Defaults to the merge-base of the PR's base and head, which is what GitHub's Files changed view compares.
     required: false
   head:
     description: Head commit SHA; defaults to the PR event head SHA.

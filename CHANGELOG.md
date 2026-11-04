@@ -16,6 +16,9 @@ First public release.
   `pull_request_target`, `workflow_run` or `issue_comment` job (WF010), and
   mutable pull request references checked out after a label, comment or
   environment approval (WF011, time-of-check to time-of-use).
+- **Compares from the merge-base.** When the base comes from the pull request
+  event, the Action compares from where the PR branched off, as GitHub's Files
+  changed view does, so a stale branch doesn't show base-branch changes reversed.
 - **`remit audit`** reports WF010 and WF011 in a repository's current state,
   for a directory or any Git commit, as JSON, Markdown or SARIF, with an
   optional `--fail-on-findings` exit code for scheduled checks.

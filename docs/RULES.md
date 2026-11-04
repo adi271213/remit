@@ -164,6 +164,11 @@ an existing checkout becomes privileged because the trigger changed, and when th
 pattern appears inside a local action or reusable workflow the job uses. A
 version bump of a download action is quiet.
 
+Detection is pattern-based: the pull request expression must appear directly in
+the checkout's `ref` or `repository`, or on the same script line as the git
+command. A reference first stored in an environment variable or step output and
+used later is not followed.
+
 ## WF011: mutable reference after approval (TOCTOU)
 
 Some privileged workflows wait for a maintainer first: a label

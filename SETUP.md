@@ -61,7 +61,7 @@ jobs:
 | Input | Default | Description |
 |---|---|---|
 | `mode` | `require-complete` | `require-complete` fails the step when analysis is incomplete or errored. `advisory` never fails because of the analysis result. |
-| `base` | PR base SHA | Base commit SHA (full 40 or 64 hex characters). |
+| `base` | merge-base of the PR | Base commit SHA (full 40 or 64 hex characters). By default the Action compares from where the PR branched off, like GitHub's *Files changed*, so changes merged to the base branch since then don't show up reversed. |
 | `head` | PR head SHA | Head commit SHA. |
 | `repository-path` | `.` | Local clone that contains both commits. |
 | `default-permissions` | — | JSON map of your repository's default token permissions, e.g. `{"contents":"read"}`. Lets jobs without a `permissions` block be compared. Set this in the calling workflow, never from PR content. |
