@@ -178,8 +178,9 @@ also writes SARIF. The exit code is 0 for complete analysis and 2 otherwise.
 
 ## Status
 
-Early (0.x): the JSON format and rule set may still change. Each release runs the
-test suite on Python 3.11–3.14, runs the Action end to end with networking
+Remit follows semantic versioning: rule IDs, Action inputs and outputs, and the
+JSON report format only change incompatibly in a new major version. Each release
+runs the test suite on Python 3.11–3.14, runs the Action end to end with networking
 disabled, and replays 74 historical public PRs. The replay's expected results
 were labelled by the project, so treat it as a regression suite rather than an
 accuracy measurement. Feedback from real repositories is the most useful thing
