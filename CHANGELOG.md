@@ -16,6 +16,9 @@
   that newly runs in a job with write scopes, OIDC, secrets or an environment.
   Ref-only changes and GitHub-owned or local actions are quiet. 8 findings in the
   74-PR replay.
+- **SARIF output:** `--format sarif` and `--sarif FILE` in the CLI, and a
+  `sarif-path` Action output for uploading to GitHub code scanning. Validated
+  against the SARIF 2.1.0 schema; fingerprints don't change when lines move.
 - **zizmor comparison:** `scripts/compare_zizmor.py` measures which findings
   zizmor's new-findings view would also surface (26 of 69 in the replay).
 - **Pull request annotations:** each finding records the head `line` that

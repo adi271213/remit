@@ -48,7 +48,8 @@ new secret to a release workflow produces this
 In a pull request, each finding also appears as an annotation on the line that
 introduced it, in the **Files changed** tab. The job summary groups findings by
 workflow and job, with a short question for the reviewer. The JSON report
-([sample](examples/sample-report.json)) has the same data for tooling.
+([sample](examples/sample-report.json)) has the same data for tooling, and a
+SARIF report can go to GitHub code scanning ([setup](SETUP.md#code-scanning-optional)).
 
 ## Rules
 
@@ -140,8 +141,9 @@ workflow-privilege-check scan --dirs examples/base examples/head --format markdo
 workflow-privilege-check scan --repo /path/to/repo --base main --head my-branch
 ```
 
-Output is JSON by default. `--output FILE` writes the report to a file and
-`--summary FILE` appends the Markdown summary. The exit code is 0 for complete
+Output is JSON by default; `--format markdown` and `--format sarif` are also
+available. `--output FILE` writes the report to a file, `--summary FILE` appends
+the Markdown summary and `--sarif FILE` also writes SARIF for code scanning. The exit code is 0 for complete
 analysis and 2 otherwise.
 
 ## Status

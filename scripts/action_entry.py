@@ -36,6 +36,8 @@ def entry():
         args += ["--default-permissions", defaults]
     if output := os.environ.get("PRIVILEGE_REPORT"):
         args += ["--output", output]
+    if sarif := os.environ.get("PRIVILEGE_SARIF"):
+        args += ["--sarif", sarif]
     if summary := os.environ.get("PRIVILEGE_SUMMARY") or os.environ.get("GITHUB_STEP_SUMMARY"):
         args += ["--summary", summary]
     return main(args)
