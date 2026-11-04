@@ -71,7 +71,7 @@ The template checks out the base commit, fetches the PR head without checking it
 out, and runs the Action pinned to a full commit SHA:
 
 ```yaml
-- uses: adi271213/remit@d776e866bfa48cc2bdbfe876ff50e74b84c75102 # v1.0.0
+- uses: adi271213/remit@88aba0dfb4ca02b6ff88b963b56326a68a1c26d9 # v1
   with:
     mode: advisory
 ```
@@ -178,8 +178,8 @@ also writes SARIF. The exit code is 0 for complete analysis and 2 otherwise.
 
 ## Status
 
-Remit follows semantic versioning: rule IDs, Action inputs and outputs, and the
-JSON report format only change incompatibly in a new major version. Each release
+Rule IDs, Action inputs and outputs, and the JSON report format stay compatible
+within a version; an incompatible change gets a new version number. Each release
 runs the test suite on Python 3.11–3.14, runs the Action end to end with networking
 disabled, and replays 74 historical public PRs. The replay's expected results
 were labelled by the project, so treat it as a regression suite rather than an
