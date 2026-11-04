@@ -16,6 +16,8 @@ REVIEW_GUIDANCE = {
               "resources."),
     "WF007": ("Check the selected environment's scoped settings and protection rules. A target change can add or "
               "remove access and approval constraints."),
+    "WF009": ("Check who maintains the new action or reusable workflow, that it is pinned to a full commit SHA, "
+              "and whether the job really needs to give it these privileges."),
     "WF008": ("Confirm that each newly paired runner should use that environment. Review runner access, "
               "environment-scoped settings and protection rules."),
 }

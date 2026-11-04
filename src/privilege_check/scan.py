@@ -27,6 +27,8 @@ REVIEW_TRIGGERS = {
     "discussion", "discussion_comment",
 }
 TOKEN = re.compile(IDENTIFIER)
+# GitHub-maintained actions are not reported by WF009.
+FIRST_PARTY_OWNERS = {"actions", "github"}
 # GitHub's "restricted" default, the narrowest default a repository or organization
 # can configure. Explicit permissions at or below it can never exceed the real default.
 MINIMUM_DEFAULT = {**{scope: "none" for scope in SCOPES}, "contents": "read", "packages": "read"}
@@ -165,6 +167,19 @@ class Locations:
         if block is None:
             return self.job(name)
         return _keys(block[1]).get(scope, block)[0]
+
+    def uses(self, name, reference):
+        """Line of the job's `uses:` (job-level or step) whose value is `reference`."""
+        line, value = self.jobs.get(name, (None, None))
+        fields = _keys(value)
+        candidates = [fields.get("uses")]
+        steps = fields.get("steps", (None, None))[1]
+        if isinstance(steps, yaml.nodes.SequenceNode):
+            candidates += [_keys(step).get("uses") for step in steps.value]
+        for item in candidates:
+            if item and isinstance(item[1], yaml.nodes.ScalarNode) and item[1].value == reference:
+                return item[0]
+        return line
 
     def secret(self, name, secret):
         """Line of the first scalar in the job (then workflow env) that references the secret."""
@@ -305,6 +320,45 @@ def _secret_expression(expression: str) -> tuple[set[str], bool]:
             names.add("*")
     names.discard("GITHUB_TOKEN")  # Already implicitly available; WF001 covers its scopes.
     return names, unknown
+
+
+def _third_party_uses(job) -> dict[str, str]:
+    """Map normalized owner/repo[/path] -> the `uses:` text, for code from outside the repository.
+
+    Local actions, Docker images and GitHub-owned actions are excluded; refs are
+    dropped so that version bumps of an already-used action stay quiet.
+    """
+    if not isinstance(job, dict):
+        return {}
+    values = [job.get("uses")]
+    steps = job.get("steps")
+    if isinstance(steps, list):
+        values += [step.get("uses") for step in steps if isinstance(step, dict)]
+    result = {}
+    for value in values:
+        if not isinstance(value, str) or value.startswith(("./", "docker://")) or "${{" in value:
+            continue
+        target = value.split("@", 1)[0].strip().casefold()
+        if target.split("/", 1)[0] in FIRST_PARTY_OWNERS or "/" not in target:
+            continue
+        result.setdefault(target, value)
+    return result
+
+
+def _privileges(job, scope, secrets) -> list[str]:
+    """What third-party code in this job could use: write scopes, OIDC, secrets, environment."""
+    granted = [f"{name}: write" for name, level in sorted((scope or {}).items()) if level == "write"]
+    names = sorted(secrets)
+    if "*" in names:
+        granted.append("all secrets")
+    elif names:
+        granted.append("secrets: " + ", ".join(names))
+    environment = job.get("environment")
+    if isinstance(environment, dict):
+        environment = environment.get("name")
+    if isinstance(environment, str):
+        granted.append(f"environment: {environment}")
+    return granted
 
 
 def _secret_refs(doc: dict, job: dict) -> tuple[set[str], bool]:
@@ -463,6 +517,16 @@ def compare(base: Snapshot, head: Snapshot, defaults=None) -> dict:
                             f"Job {name} adds a reference or forwarding path to {display}. "
                             "Availability and actual access are not verified.",
                             lines.secret(name, secret))
+            # WF009: third-party code newly running where it can use the job's privileges.
+            if "head" in values and "head" in refs:
+                granted = _privileges(new_job, new_value, refs["head"][0])
+                old_uses = _third_party_uses(old_job)
+                for target, reference in sorted(_third_party_uses(new_job).items()):
+                    if granted and target not in old_uses:
+                        finding("WF009", path, name, None, {"uses": reference, "privileges": granted},
+                                f"Job {name} now runs third-party code from {reference}, which can use "
+                                f"{'; '.join(granted)}. Review the action and pin it to a full commit SHA.",
+                                lines.uses(name, reference))
     if report["inheritedComparisons"]:
         report["assumptions"].append(
             "Unchanged inherited permissions for matched job IDs compare symbolically, assuming external "

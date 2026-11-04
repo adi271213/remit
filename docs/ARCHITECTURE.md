@@ -9,7 +9,7 @@
 | `scripts/action_entry.py` | Resolves base/head SHAs from inputs or the PR event and calls the CLI. |
 | `src/privilege_check/cli.py` | Argument parsing, report output, exit codes. |
 | `src/privilege_check/sources.py` | Reads workflow files from a directory or from Git objects, with size limits. |
-| `src/privilege_check/scan.py` | YAML parsing, rename detection, WF001/WF003/WF004, and assembly of the report. |
+| `src/privilege_check/scan.py` | YAML parsing, rename detection, WF001–WF004 and WF009, and assembly of the report. |
 | `src/privilege_check/contexts.py` | WF005/WF007/WF008: runner and environment normalisation and matrix expansion. |
 | `src/privilege_check/expressions.py` | Identifier grammar shared by secret and matrix parsing. |
 | `src/privilege_check/yaml_limits.py` | Bounds the composed YAML graph before any Python objects are built. |

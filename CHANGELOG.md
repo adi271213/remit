@@ -12,6 +12,12 @@
   GitHub's narrowest default (`contents: read`, `packages: read`): hardening
   changes stay quiet, and anything above it is a WF002 finding. In the 74-PR
   replay, all reports are now complete (previously 12 were incomplete).
+- **New rule WF009:** an action or reusable workflow from outside the repository
+  that newly runs in a job with write scopes, OIDC, secrets or an environment.
+  Ref-only changes and GitHub-owned or local actions are quiet. 8 findings in the
+  74-PR replay.
+- **zizmor comparison:** `scripts/compare_zizmor.py` measures which findings
+  zizmor's new-findings view would also surface (26 of 69 in the replay).
 - **Pull request annotations:** each finding records the head `line` that
   introduced it, and the Action shows up to 10 findings as annotations in the
   PR's Files changed tab. Annotation text is escaped, and the JSON report is
