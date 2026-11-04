@@ -30,6 +30,15 @@ class Snapshot:
     read: Callable[[str], str | None] | None = field(default=None, compare=False, repr=False)
 
 
+def merge_base(repo: str | Path, base: str, head: str) -> str | None:
+    """The best common ancestor of two commits, or None when there isn't one locally."""
+    try:
+        commit = _git(repo, "merge-base", base, head).decode().strip()
+    except InputError:
+        return None
+    return commit if re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", commit) else None
+
+
 def safe_relative(path: str) -> str | None:
     """Normalize a repository-relative path; reject absolute paths and escapes."""
     if not path or "\0" in path or "\\" in path or path.startswith("/"):
@@ -51,6 +60,17 @@ class _Budget:
         self.files += 1
         self.bytes += size
         return True
+
+
+def _memoized(read):
+    """Read each path once: repeated references must not use up the budget."""
+    results = {}
+
+    def cached(path: str) -> str | None:
+        if path not in results:
+            results[path] = read(path)
+        return results[path]
+    return cached
 
 
 def _text(blob: bytes) -> str | None:
@@ -135,7 +155,7 @@ def directory(root: str | Path) -> Snapshot:
             os.close(fd)
         return _text(blob) if budget.allow(len(blob)) else None
 
-    return Snapshot("directory:sha256:" + digest.hexdigest(), files, read)
+    return Snapshot("directory:sha256:" + digest.hexdigest(), files, _memoized(read))
 
 
 def _git(repo: str | Path, *args: str) -> bytes:
@@ -200,4 +220,4 @@ def git_snapshot(repo: str | Path, ref: str) -> Snapshot:
         except (InputError, ValueError, IndexError):
             return None
 
-    return Snapshot(commit, _decode(blobs), read)
+    return Snapshot(commit, _decode(blobs), _memoized(read))

@@ -37,7 +37,8 @@ jobs:
             exit 1
           fi
       - name: Report privilege changes
-        # The base checkout is the merged Action, so a PR cannot change the code reviewing it.
+        # Loads Remit's code from the base checkout, so a PR's edits to Remit itself don't affect this
+        # review. This workflow file still comes from the PR, so changes to it need normal review.
         uses: ./
         with:
           mode: advisory
