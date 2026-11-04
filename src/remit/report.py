@@ -75,13 +75,18 @@ def _combine_token_rows(items):
 
 def markdown(report: dict) -> str:
     status = report["analysis"]
+    audit = report.get("mode") == "audit"
     if status != "complete":
-        title = "Analysis " + status
+        title = ("Audit " if audit else "Analysis ") + status
     elif report["findings"]:
-        title = "Review suggested"
+        title = "Audit: pull request content reaches privileged workflows" if audit else "Review suggested"
     else:
-        title = "No supported privilege expansions detected"
-    lines = [f"## {title}", "", f"Base: {_identity(report['base'])}", f"Head: {_identity(report['head'])}", ""]
+        title = ("Audit: no pull request content in privileged workflows" if audit
+                 else "No supported privilege expansions detected")
+    if audit:
+        lines = [f"## {title}", "", f"Audited: {_identity(report['head'])}", ""]
+    else:
+        lines = [f"## {title}", "", f"Base: {_identity(report['base'])}", f"Head: {_identity(report['head'])}", ""]
     # One heading per workflow file, then one table per job (workflow-level first).
     files = {}
     for item in report["findings"]:
@@ -95,9 +100,15 @@ def markdown(report: dict) -> str:
             heading = "Job: " + _text(job) if job is not None else "Workflow-level change"
             if workflow:
                 heading += " (in " + _text(workflow) + ")"
-            lines += [heading, "",
-                      "| Rule | Before | After | Change |", "|---|---|---|---|"]
-            for item in items:
+            if audit:
+                # Nothing to compare against: show where each finding is and what it means.
+                lines += [heading, "", "| Rule | Line | Finding |", "|---|---|---|"]
+                for item in items:
+                    line = str(item["line"]) if isinstance(item.get("line"), int) else "—"
+                    lines.append("| " + " | ".join((_text(item["rule"]), line, _text(item["message"]))) + " |")
+            else:
+                lines += [heading, "", "| Rule | Before | After | Change |", "|---|---|---|---|"]
+            for item in [] if audit else items:
                 before, short_before = _value(item["before"])
                 after, short_after = _value(item["after"])
                 shortened |= short_before or short_after
@@ -123,5 +134,9 @@ def markdown(report: dict) -> str:
         lines += ["", "### Assumptions"]
     for assumption in report.get("assumptions", []):
         lines += ["", "Assumption: " + _text(assumption)]
-    lines += ["", "Scope: configured capability changes only. This report does not establish PR safety."]
+    if audit:
+        lines += ["", "Scope: WF010 and WF011 in the current workflows. "
+                      "This report does not establish repository safety."]
+    else:
+        lines += ["", "Scope: configured capability changes only. This report does not establish PR safety."]
     return "\n".join(lines) + "\n"

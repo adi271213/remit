@@ -367,16 +367,40 @@ def _scope(doc, job, defaults):
     return defaults
 
 
-def compare(base: Snapshot, head: Snapshot, defaults=None) -> dict:
+AUDIT_RULES = ("WF010", "WF011")
+AUDIT_LIMITATION = ("Audit mode reports the current state for WF010 and WF011 only: pull request content reachable "
+                    "from pull_request_target, workflow_run and issue_comment jobs.")
+
+
+def audit(snapshot: Snapshot, defaults=None) -> dict:
+    """Current-state report: where privileged workflows bring in pull request content."""
+    report = compare(Snapshot("empty", {}), snapshot, defaults, _audit=True)
+    report.update({"mode": "audit", "base": None, "renames": [], "inheritedComparisons": [], "assumptions": []})
+    report["findings"] = [f for f in report["findings"] if f["rule"] in AUDIT_RULES]
+    # Keep what can hide an audited finding: unreadable files or triggers, and local code
+    # that could not be followed. Unresolved runners or secrets don't affect these rules.
+    report["diagnostics"] = [d for d in report["diagnostics"]
+                             if d["job"] is None or d.get("area") == "local-code"]
+    report["limitations"] = [AUDIT_LIMITATION, *report["limitations"]]
+    report["analysis"] = "complete"
+    if report["diagnostics"]:
+        report["analysis"] = "error" if any(d["kind"] == "error" for d in report["diagnostics"]) else "incomplete"
+    report["review"] = "suggested" if report["findings"] else "none"
+    return report
+
+
+def compare(base: Snapshot, head: Snapshot, defaults=None, *, _audit=False) -> dict:
     report = {"schemaVersion": SCHEMA_VERSION, "base": base.identity, "head": head.identity,
               "analysis": "complete", "review": "none", "findings": [], "diagnostics": [],
               "renames": [], "examinedFiles": [], "limitations": LIMITATIONS.copy(),
               "defaultPermissions": defaults, "inheritedComparisons": [],
               "assumptions": []}
 
-    def diagnostic(path, side, reason, *, job=None, error=False):
-        report["diagnostics"].append({"file": path, "side": side, "job": job,
-                                      "kind": "error" if error else "incomplete", "reason": reason})
+    def diagnostic(path, side, reason, *, job=None, error=False, area=None):
+        item = {"file": path, "side": side, "job": job, "kind": "error" if error else "incomplete", "reason": reason}
+        if area:
+            item["area"] = area
+        report["diagnostics"].append(item)
 
     def finding(rule, path, job, before, after, message, line=None, workflow=None):
         item = {"rule": rule, "file": path, "job": job, "line": line,
@@ -534,7 +558,7 @@ def compare(base: Snapshot, head: Snapshot, defaults=None) -> dict:
                 job_node = nodes[side].jobs.get(name, (None, None))[1] if nodes[side] else None
                 flows[side] = local.job(path, job, job_node)
                 for reason in dict.fromkeys(local.issues[known:]):
-                    diagnostic(path, side, reason, job=name)
+                    diagnostic(path, side, reason, job=name, area="local-code")
             if "head" not in values or "head" not in refs:
                 continue
             granted = _privileges(new_job, new_value, refs["head"][0])
@@ -591,7 +615,8 @@ def compare(base: Snapshot, head: Snapshot, defaults=None) -> dict:
                             fetch.line, workflow=path)
                 else:
                     finding("WF010", fetch.file, name, None, after_value,
-                            f"Job {name} runs on {trigger_text} and now brings in pull request content "
+                            f"Job {name} runs on {trigger_text} and {'' if _audit else 'now '}brings in pull "
+                            "request content "
                             f"({fetch.ref}){via} where it can use {capability_text}. Code from the pull request "
                             "can act with those privileges; run it in a separate job without secrets or write "
                             "access.", fetch.line, workflow=path)
