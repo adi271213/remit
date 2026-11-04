@@ -51,9 +51,8 @@ class OfflineRuntime(unittest.TestCase):
         version = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(version)
         self.assertEqual(project['project']['version'], version.__version__)
-        self.assertEqual(version.__version__, '0.1.0')
+        self.assertEqual(version.__version__, '1.0.0')
 
-    def test_remit_command_and_legacy_alias_point_at_the_same_entry(self):
+    def test_remit_is_the_only_command(self):
         scripts = tomllib.loads((ROOT / 'pyproject.toml').read_text())['project']['scripts']
-        self.assertEqual(scripts['remit'], 'remit.cli:main')
-        self.assertEqual(scripts['workflow-privilege-check'], 'remit.cli:main')
+        self.assertEqual(scripts, {'remit': 'remit.cli:main'})
