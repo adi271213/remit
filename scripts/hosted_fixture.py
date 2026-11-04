@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -46,7 +47,6 @@ if __name__ == "__main__":
     values = create(sys.argv[1], os.environ["RUNNER_TEMP"])
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
         # Paths are runner-controlled; multiline outputs also preserve spaces.
-        import uuid
         for key, value in values.items():
             delimiter = "wpc_" + uuid.uuid4().hex
             handle.write(f"{key}<<{delimiter}\n{value}\n{delimiter}\n")

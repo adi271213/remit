@@ -91,3 +91,31 @@ class DeltaReport(unittest.TestCase):
         self.assertIn("No supported privilege expansions detected", text)
         self.assertNotIn("Review:", text)
         self.assertNotIn("| Before |", text)
+
+    def test_findings_from_one_file_share_a_single_file_heading(self):
+        head = (BASE.replace("on: workflow_dispatch", "on: [workflow_dispatch, issues]")
+                .replace("contents: read", "contents: write")
+                + "  deploy:\n    runs-on: ubuntu-latest\n    steps: [{run: echo deploy}]\n")
+        text = markdown(scan(head))
+        self.assertEqual(text.count("### .github/workflows/ci.yml"), 1)
+        self.assertLess(text.index("Workflow-level change"), text.index("Job: build"))
+        self.assertIn("Job: deploy", text)
+
+    def test_error_report_without_commits_does_not_print_none(self):
+        from privilege_check.scan import error_report
+        text = markdown(error_report("Could not read comparison inputs."))
+        self.assertIn("Base: unavailable", text)
+        self.assertNotIn("None", text)
+
+    def test_checked_in_sample_reports_match_current_output(self):
+        from privilege_check.cli import main
+        import contextlib
+        import io
+        examples = ROOT / "examples"
+        for fmt, name in (("markdown", "sample-report.md"), ("json", "sample-report.json")):
+            with self.subTest(fmt=fmt):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    main(["scan", "--dirs", str(examples / "base"), str(examples / "head"), "--format", fmt])
+                self.assertEqual(out.getvalue(), (examples / name).read_text(encoding="utf-8"),
+                                 f"Regenerate examples/{name} after changing report output.")

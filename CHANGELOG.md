@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Support the `models` token permission scope (`none`/`read`). Previously any
+  change to a workflow declaring `models: read` produced an analysis error.
+- Markdown reports group findings under one heading per workflow file and show
+  `unavailable` instead of `None` when no commit was resolved.
+- Regenerate the stale sample JSON report and test that both samples match the
+  current output.
+
 ## 0.0.4 — 2026-10-30
 
 - Fix expression identifier boundaries: hyphenated properties such as

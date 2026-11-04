@@ -264,6 +264,15 @@ class Semantics(unittest.TestCase):
         result = self.scan(BASE.replace("permissions: {}", "permissions: {unknown-scope: write}"))
         self.assertEqual(result["analysis"], "error")
 
+    def test_models_scope_is_supported(self):
+        result = self.scan(BASE.replace("permissions: {}", "permissions: {models: read}"))
+        self.assertEqual(result["analysis"], "complete")
+        self.assertEqual([(f["before"], f["after"]) for f in result["findings"]],
+                         [({"models": "none"}, {"models": "read"})])
+        unrelated = BASE.replace("permissions: {}", "permissions: {models: read}")
+        self.assertEqual(self.scan(unrelated.replace("echo", "printf"), unrelated)["analysis"], "complete")
+        self.assertEqual(self.scan(BASE.replace("permissions: {}", "permissions: {models: write}"))["analysis"], "error")
+
     def test_invalid_oidc_read(self):
         self.assertEqual(self.scan(BASE.replace("permissions: {}", "permissions: {id-token: read}"))["analysis"], "error")
 

@@ -9,6 +9,7 @@ from .contexts import compare_contexts
 from .expressions import IDENTIFIER
 from .yaml_limits import MAX_ALIASES, validate_graph
 
+SCHEMA_VERSION = "0.1"
 LEVELS = {"none": 0, "read": 1, "write": 2}
 SCOPES = {
     name: {"none", "read", "write"} for name in (
@@ -18,9 +19,9 @@ SCOPES = {
     )
 }
 SCOPES.update({"id-token": {"none", "write"}, "copilot-requests": {"none", "write"},
-               "vulnerability-alerts": {"none", "read"}})
+               "models": {"none", "read"}, "vulnerability-alerts": {"none", "read"}})
 # Selected default/base-branch execution boundaries, not a claim that each
-# event grants a write token. See docs/TRIGGER-POLICY.md for rationale and limits.
+# event grants a write token. See docs/rules.md#wf003 for rationale and limits.
 REVIEW_TRIGGERS = {
     "pull_request_target", "workflow_run", "issue_comment", "issues",
     "discussion", "discussion_comment",
@@ -35,6 +36,13 @@ LIMITATIONS = [
     "Only direct static matrix fields resolve runner/environment expressions; unchanged unresolved selections compare symbolically under fixed external context.",
     "Runner/environment association comparison covers supported static rows with unchanged individual target sets; it does not trace secret delivery or runtime reachability.",
 ]
+
+
+def error_report(reason: str) -> dict:
+    """Report shape for inputs that could not be compared at all."""
+    return {"schemaVersion": SCHEMA_VERSION, "base": None, "head": None, "analysis": "error",
+            "review": "none", "findings": [], "diagnostics": [{"file": "input", "job": None,
+            "side": "comparison", "kind": "error", "reason": reason}], "limitations": LIMITATIONS.copy()}
 
 
 class StrictLoader(yaml.SafeLoader):
@@ -232,7 +240,7 @@ def _scope(doc, job, defaults):
 
 
 def compare(base: Snapshot, head: Snapshot, defaults=None) -> dict:
-    report = {"schemaVersion": "0.1", "base": base.identity, "head": head.identity,
+    report = {"schemaVersion": SCHEMA_VERSION, "base": base.identity, "head": head.identity,
               "analysis": "complete", "review": "none", "findings": [], "diagnostics": [],
               "renames": [], "examinedFiles": [], "limitations": LIMITATIONS.copy(),
               "defaultPermissions": defaults, "inheritedComparisons": [],

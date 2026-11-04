@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 
 from .report import markdown
-from .scan import LIMITATIONS, compare, permissions
+from .scan import compare, error_report, permissions
 from .sources import InputError, directory, git_snapshot
 
 
@@ -45,9 +45,7 @@ def main(argv=None) -> int:
     except (InputError, OSError) as exc:
         # Do not echo filesystem errors, source text, credentials, or git stderr.
         reason = str(exc) if isinstance(exc, InputError) else "Could not read comparison inputs."
-        result = {"schemaVersion": "0.1", "base": None, "head": None, "analysis": "error",
-                  "review": "none", "findings": [], "diagnostics": [{"file": "input", "job": None,
-                  "side": "comparison", "kind": "error", "reason": reason}], "limitations": LIMITATIONS.copy()}
+        result = error_report(reason)
     text = json.dumps(result, indent=2, sort_keys=True) + "\n" if args.format == "json" else markdown(result)
     try:
         if args.output:
