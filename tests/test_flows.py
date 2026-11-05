@@ -111,12 +111,51 @@ class TimeOfCheckTimeOfUse(unittest.TestCase):
                       {WF: self.GATED.replace("REF", "${{ github.event.pull_request.head.sha }}")})
         self.assertEqual([r[0] for r in rules(report, "WF010", "WF011")], ["WF010"])
 
-    def test_comment_command_with_pr_checkout_is_wf011(self):
-        base = ("on: issue_comment\njobs:\n  test:\n    if: contains(github.event.comment.body, '/ok-to-test')\n"
-                "    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n")
-        head = base.replace("      - run: echo hi\n", "      - run: gh pr checkout ${{ github.event.issue.number }}\n")
-        report = scan({WF: base}, {WF: head})
-        self.assertEqual([r[0] for r in rules(report, "WF010", "WF011")], ["WF011"])
+    COMMENT = ("on: issue_comment\njobs:\n  test:\n    if: {condition}\n"
+               "    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n")
+    PR_CHECKOUT = "      - run: gh pr checkout ${{ github.event.issue.number }}\n"
+
+    def comment_rules(self, base):
+        report = scan({WF: base}, {WF: base.replace("      - run: echo hi\n", self.PR_CHECKOUT)})
+        return [f for f in report["findings"] if f["rule"] in ("WF010", "WF011")]
+
+    def test_comment_command_from_a_checked_commenter_is_wf011(self):
+        condition = ("contains(github.event.comment.body, '/ok-to-test') && "
+                     "contains(fromJSON('[\"OWNER\", \"MEMBER\"]'), github.event.comment.author_association)")
+        findings = self.comment_rules(self.COMMENT.format(condition=condition))
+        self.assertEqual([f["rule"] for f in findings], ["WF011"])
+        # issue_comment events carry no pull request SHA to suggest.
+        self.assertNotIn("pull_request.head.sha", findings[0]["message"])
+        self.assertIn("have the command name the approved commit", findings[0]["message"])
+
+    def test_comment_text_check_alone_is_not_a_gate(self):
+        # Anyone who can comment can type /ok-to-test.
+        findings = self.comment_rules(self.COMMENT.format(condition="contains(github.event.comment.body, '/ok-to-test')"))
+        self.assertEqual([f["rule"] for f in findings], ["WF010"])
+
+    def test_comment_trigger_without_any_condition_is_wf010(self):
+        base = "on: issue_comment\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n"
+        self.assertEqual([f["rule"] for f in self.comment_rules(base)], ["WF010"])
+
+    def test_permission_check_in_a_needed_job_gates_the_comment(self):
+        base = ("on: issue_comment\njobs:\n  authorize:\n    runs-on: ubuntu-latest\n    steps:\n"
+                "      - uses: actions/github-script@v7\n        with:\n          script: |\n"
+                "            const r = await github.rest.repos.getCollaboratorPermissionLevel({owner: 'o', repo: 'r', "
+                "username: context.actor});\n"
+                "  test:\n    needs: authorize\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n")
+        self.assertEqual([f["rule"] for f in self.comment_rules(base)], ["WF011"])
+
+    def test_slash_command_permission_input_gates_the_comment(self):
+        base = ("on: issue_comment\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n"
+                "      - uses: xt0rted/slash-command-action@v2\n        with:\n          command: test\n"
+                "          permission-level: write\n      - run: echo hi\n")
+        self.assertEqual([f["rule"] for f in self.comment_rules(base)], ["WF011"])
+
+    def test_wf011_advice_names_the_sha_field_of_each_trigger(self):
+        gated = TimeOfCheckTimeOfUse.GATED
+        report = scan({WF: gated.replace("REF", "main")}, {WF: gated.replace("REF", "${{ github.head_ref }}")})
+        [finding] = [f for f in report["findings"] if f["rule"] == "WF011"]
+        self.assertIn("github.event.pull_request.head.sha", finding["message"])
 
     def test_adding_the_gate_turns_an_existing_mutable_checkout_into_toctou(self):
         ungated = self.GATED.replace("    types: [labeled]\n", "").replace(
@@ -241,3 +280,74 @@ class LocalCode(unittest.TestCase):
             git("commit", "-qam", "head")
             report = compare(git_snapshot(repo, base), git_snapshot(repo, "HEAD"))
         self.assertEqual(rules(report, "WF009"), [("WF009", ACTION, 6)])
+
+
+PRIVILEGED = """on: pull_request_target
+permissions: {contents: write}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi
+"""
+WORKFLOW_RUN = """on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+permissions: {contents: write}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi
+"""
+
+
+class OtherWaysToFetchPullRequestContent(unittest.TestCase):
+    def added(self, base, step):
+        report = scan({WF: base}, {WF: base.replace("      - run: echo hi\n", step)})
+        return [(f["rule"], f["after"]["kind"], f["after"]["ref"]) for f in report["findings"] if f["rule"] == "WF010"]
+
+    def test_clone_of_the_head_repository(self):
+        found = self.added(PRIVILEGED, "      - run: git clone ${{ github.event.pull_request.head.repo.clone_url }} src\n")
+        self.assertEqual([f[:2] for f in found], [("WF010", "script")])
+
+    def test_gh_repo_clone_of_the_head_repository(self):
+        found = self.added(PRIVILEGED, "      - run: gh repo clone ${{ github.event.pull_request.head.repo.full_name }}\n")
+        self.assertEqual([f[:2] for f in found], [("WF010", "script")])
+
+    def test_pull_request_diff_applied_to_the_workspace(self):
+        found = self.added(PRIVILEGED, "      - run: gh pr diff ${{ github.event.pull_request.number }} | git apply\n")
+        self.assertEqual([f[:2] for f in found], [("WF010", "script")])
+
+    def test_archive_of_the_head_commit(self):
+        step = ("      - run: curl -sL https://github.com/${{ github.event.pull_request.head.repo.full_name }}"
+                "/archive/${{ github.event.pull_request.head.sha }}.tar.gz | tar xz\n")
+        self.assertEqual([f[:2] for f in self.added(PRIVILEGED, step)], [("WF010", "script")])
+
+    def test_curl_of_pull_request_metadata_is_quiet(self):
+        step = ("      - run: curl -s https://api.github.com/repos/${{ github.repository }}/pulls/"
+                "${{ github.event.pull_request.number }} | jq .labels\n")
+        self.assertEqual(self.added(PRIVILEGED, step), [])
+
+    def test_gh_run_download_of_the_triggering_run(self):
+        step = "      - run: gh run download ${{ github.event.workflow_run.id }} -n out\n"
+        self.assertEqual([f[:2] for f in self.added(WORKFLOW_RUN, step)], [("WF010", "artifact")])
+
+    def test_gh_run_download_through_a_step_variable(self):
+        step = ("      - run: gh run download \"$RUN\" -n out\n        env:\n"
+                "          RUN: ${{ github.event.workflow_run.id }}\n")
+        self.assertEqual([f[:2] for f in self.added(WORKFLOW_RUN, step)], [("WF010", "artifact")])
+
+    def test_github_script_artifact_download(self):
+        step = ("      - uses: actions/github-script@v7\n        with:\n          script: |\n"
+                "            const all = await github.rest.actions.listWorkflowRunArtifacts({owner: context.repo.owner, "
+                "repo: context.repo.repo, run_id: context.payload.workflow_run.id});\n"
+                "            await github.rest.actions.downloadArtifact({owner: context.repo.owner, "
+                "repo: context.repo.repo, artifact_id: all.data.artifacts[0].id, archive_format: 'zip'});\n")
+        self.assertEqual([f[:2] for f in self.added(WORKFLOW_RUN, step)], [("WF010", "artifact")])
+
+    def test_unrelated_clone_and_run_download_are_quiet(self):
+        step = ("      - run: |\n          git clone https://github.com/${{ github.repository }} copy\n"
+                "          gh run download 12345 -n docs\n")
+        self.assertEqual(self.added(WORKFLOW_RUN, step), [])

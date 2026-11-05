@@ -366,6 +366,17 @@ def _scope(doc, job, defaults):
     return defaults
 
 
+def _pin_advice(triggers) -> str:
+    """How to check out the approved commit, for the event the job runs on."""
+    if "pull_request_target" in triggers:
+        return "Check out the approved commit SHA, github.event.pull_request.head.sha."
+    if "workflow_run" in triggers:
+        return "Check out the commit that triggering run built, github.event.workflow_run.head_sha."
+    # issue_comment payloads carry no pull request commit.
+    return ("The comment event carries no commit SHA: have the command name the approved commit and check out "
+            "exactly that SHA.")
+
+
 AUDIT_RULES = ("WF010", "WF011")
 AUDIT_LIMITATION = ("Audit mode reports the current state for WF010 and WF011 only: pull request content reachable "
                     "from pull_request_target, workflow_run and issue_comment jobs.")
@@ -613,8 +624,7 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, _audit=False) -> d
                     finding("WF011", fetch.file, name, None, {**after_value, "gate": head_gate},
                             f"Job {name} waits for {head_gate} and then checks out a mutable pull request "
                             f"reference ({fetch.ref}){via}. The author can push new commits after approval and "
-                            "before checkout (time-of-check to time-of-use). Check out the approved commit SHA, "
-                            "such as github.event.pull_request.head.sha.",
+                            f"before checkout (time-of-check to time-of-use). {_pin_advice(head_triggers)}",
                             fetch.line, workflow=path)
                 else:
                     finding("WF010", fetch.file, name, None, after_value,

@@ -30,8 +30,28 @@ IMMUTABLE_REF = re.compile(
 MUTABLE_REF = re.compile(
     r"github\s*\.\s*(?:head_ref|event\s*\.\s*(?:pull_request\s*\.\s*head\s*\.\s*(?:ref|repo)"
     r"|workflow_run\s*\.\s*(?:head_branch|head_repository)))|refs/pull/", re.IGNORECASE)
-SCRIPT_FETCH = re.compile(r"\bgh\s+pr\s+checkout\b|\bgit\s+(?:fetch|pull)\b[^\n]*\bpull/", re.IGNORECASE)
-SCRIPT_CHECKOUT = re.compile(r"\bgit\s+(?:checkout|switch|reset|fetch)\b", re.IGNORECASE)
+SCRIPT_FETCH = re.compile(
+    r"\bgh\s+pr\s+checkout\b|\bgit\s+(?:fetch|pull)\b[^\n]*\bpull/"
+    # The pull request's diff applied to the workspace, as it is when the job runs.
+    r"|\bgh\s+pr\s+diff\b[^\n]*\|\s*(?:git\s+apply|git\s+am|patch)\b", re.IGNORECASE)
+# Commands that put the content a reference names into the workspace. The reference (or a
+# variable carrying it) must be on the same line.
+SCRIPT_CHECKOUT = re.compile(r"\bgit\s+(?:checkout|switch|reset|fetch|clone)\b|\bgh\s+repo\s+clone\b", re.IGNORECASE)
+# Downloads count only when they fetch an archive or patch, or feed one to an unpacker:
+# a curl of the pull request API for its labels or title is metadata, not content.
+DOWNLOAD = re.compile(r"\b(?:curl|wget)\b", re.IGNORECASE)
+ARCHIVE = re.compile(r"tarball|zipball|/archive/|\.(?:tar(?:\.gz)?|tgz|zip|diff|patch)\b"
+                     r"|\|\s*(?:tar|unzip|git\s+apply|git\s+am|patch|sh|bash)\b", re.IGNORECASE)
+# Job conditions and steps that check who wrote a comment command.
+COMMENTER_CHECK = re.compile(r"author_association|\buser\s*\.\s*login\b|\bgithub\s*\.\s*(?:triggering_)?actor\b",
+                             re.IGNORECASE)
+PERMISSION_LOOKUP = re.compile(r"getCollaboratorPermissionLevel|collaborators/[^\s'\"]+/permission|checkCollaborator",
+                               re.IGNORECASE)
+# Inputs of slash-command actions that reject commenters below a permission level.
+PERMISSION_INPUTS = {"permission", "permission-level"}
+# Artifacts uploaded by the run that triggered a workflow_run, downloaded by run ID.
+RUN_DOWNLOAD = re.compile(r"\bgh\s+run\s+download\b", re.IGNORECASE)
+JS_ARTIFACT_DOWNLOAD = re.compile(r"\bdownloadArtifact\s*\(", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -187,15 +207,19 @@ def fetch_of(step: dict, ctx: Context | None = None) -> tuple[str, str, bool] | 
             and any("workflow_run" in text for text in _strings(options))):
         # Compare by action, not version: a ref bump is not a new download.
         return "artifact", step["uses"].split("@", 1)[0], False
+    if uses.startswith("actions/github-script@") and isinstance(options.get("script"), str):
+        if JS_ARTIFACT_DOWNLOAD.search(options["script"]) and "workflow_run" in options["script"]:
+            return "artifact", "github.rest.actions.downloadArtifact", False
     run = step.get("run")
     if isinstance(run, str):
         if SCRIPT_FETCH.search(run):
             line = next(line for line in run.splitlines() if SCRIPT_FETCH.search(line))
             return "script", line.strip(), True
-        # The git command and the pull request reference (or a variable carrying it)
-        # must be on the same line.
+        step_env = " ".join(_strings(step.get("env")))
         for line in run.splitlines():
-            if SCRIPT_CHECKOUT.search(line):
+            if RUN_DOWNLOAD.search(line) and ("workflow_run" in line or "workflow_run" in step_env):
+                return "artifact", " ".join(line.split()), False
+            if SCRIPT_CHECKOUT.search(line) or (DOWNLOAD.search(line) and ARCHIVE.search(line)):
                 taint = taint_of(line, ctx, shell=True)
                 if taint:
                     return "script", _shown(line, taint), taint.mutable
@@ -425,14 +449,35 @@ def gate(document: dict, job: dict, triggers: set[str]) -> str | None:
         types = target.get("types") if isinstance(target, dict) else None
         if isinstance(types, list) and "labeled" in types:
             return "a label"
-    if "issue_comment" in triggers:
-        return "a comment command"
-    condition = job.get("if")
-    if isinstance(condition, str):
-        if "label" in condition:
-            return "a label"
-        if "comment" in condition:
-            return "a comment command"
+    condition = job.get("if") if isinstance(job.get("if"), str) else ""
+    if "label" in condition:
+        return "a label"
     if job.get("environment"):
         return "environment approval"
+    # Anyone who can see a public repository can comment, and a check of the comment's text
+    # (contains(github.event.comment.body, '/ok-to-test')) does not limit who. A comment is a
+    # gate only when the job, or a job it needs, checks who wrote it.
+    if "issue_comment" in triggers and any(_checks_commenter(item) for item in [job, *_needed(document, job)]):
+        return "a comment command"
     return None
+
+
+def _checks_commenter(job: dict) -> bool:
+    condition = job.get("if") if isinstance(job.get("if"), str) else ""
+    for step in _job_steps(job):
+        options = step.get("with") if isinstance(step.get("with"), dict) else {}
+        if PERMISSION_INPUTS & set(options) or any(PERMISSION_LOOKUP.search(text) for text in _strings(step)):
+            return True
+    return bool(COMMENTER_CHECK.search(condition))
+
+
+def _needed(document: dict, job: dict) -> list:
+    jobs = document.get("jobs") if isinstance(document.get("jobs"), dict) else {}
+    needs = job.get("needs")
+    names = [needs] if isinstance(needs, str) else needs if isinstance(needs, list) else []
+    return [jobs[name] for name in names if isinstance(name, str) and isinstance(jobs.get(name), dict)]
+
+
+def _job_steps(job: dict) -> list:
+    steps = job.get("steps")
+    return [step for step in steps if isinstance(step, dict)] if isinstance(steps, list) else []
