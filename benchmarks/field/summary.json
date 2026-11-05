@@ -1,0 +1,59 @@
+{
+  "commits": 446,
+  "repositories": 30,
+  "remitAnalysis": {
+    "complete": 416,
+    "incomplete": 29,
+    "error": 1
+  },
+  "commitsWithNewFindings": {
+    "remit": 55,
+    "zizmor": 82,
+    "poutine": 26,
+    "actionlint": 13
+  },
+  "newFindings": {
+    "remit": 211,
+    "zizmor": 485,
+    "poutine": 53,
+    "actionlint": 66
+  },
+  "remitByRule": {
+    "WF001": {
+      "findings": 53,
+      "alsoNewInAnotherTool": 20
+    },
+    "WF002": {
+      "findings": 8,
+      "alsoNewInAnotherTool": 8
+    },
+    "WF003": {
+      "findings": 13,
+      "alsoNewInAnotherTool": 7
+    },
+    "WF004": {
+      "findings": 57,
+      "alsoNewInAnotherTool": 2
+    },
+    "WF005": {
+      "findings": 31,
+      "alsoNewInAnotherTool": 0
+    },
+    "WF007": {
+      "findings": 13,
+      "alsoNewInAnotherTool": 0
+    },
+    "WF009": {
+      "findings": 35,
+      "alsoNewInAnotherTool": 23
+    },
+    "WF010": {
+      "findings": 1,
+      "alsoNewInAnotherTool": 0
+    }
+  },
+  "remitSeconds": {
+    "median": 0.25,
+    "max": 10.72
+  }
+}
