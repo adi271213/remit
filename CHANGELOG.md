@@ -7,6 +7,9 @@
   pull request changed only that file, the failure could be dropped and the
   result reported as `complete`, depending on workflow file order. A change
   between two unparseable versions of a local file is now examined too.
+- **Fixed:** `uses: $/path` (GitHub's same-repository action reference) is
+  followed like `./path`. Previously it was treated as third-party code: changes
+  inside it went unreported, and switching to it produced a WF009 finding.
 
 ## Version 1 — 2026-11-04
 

@@ -206,6 +206,9 @@ Steps are followed into code the repository itself provides:
 - local reusable workflows, `uses: ./.github/workflows/name.yml`, whose jobs run
   with the calling job's permissions and secrets.
 
+GitHub's same-repository form, `uses: $/path`, is followed the same way and is
+never reported as third-party code.
+
 References are followed up to four levels deep, cycles are cut, and paths that
 leave the repository are refused. A workflow whose own file didn't change is
 still examined when a local file it reaches did. A local reference that can't be
