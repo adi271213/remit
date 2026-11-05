@@ -271,3 +271,19 @@ class SharedCodeFindings(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DeclaringPermissions(unittest.TestCase):
+    """From the 30 held-out repositories: most WF002 findings were hardening changes."""
+    INHERITED = "on: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: make\n"
+
+    def declared(self, block):
+        return self.INHERITED.replace("    runs-on:", f"    permissions: {block}\n    runs-on:")
+
+    def test_a_read_only_block_replacing_the_default_is_quiet(self):
+        report = scan({WF: self.INHERITED}, {WF: self.declared("{contents: read, issues: read, pull-requests: read}")})
+        self.assertEqual(rules(report), [])
+
+    def test_a_block_with_a_write_scope_is_still_reported(self):
+        report = scan({WF: self.INHERITED}, {WF: self.declared("{issues: read, packages: write}")})
+        self.assertEqual([(f["rule"], f["after"]) for f in report["findings"]], [("WF002", {"packages": "write"})])
