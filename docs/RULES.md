@@ -270,7 +270,9 @@ Pull request code that runs in a `pull_request_target`, `workflow_run` or
 and can write entries to it. A job that later restores that cache while it
 publishes, deploys or holds secrets builds with whatever was planted. WF012 is
 reported when a job with write scopes, `id-token: write`, secrets or an
-environment newly restores files from the cache:
+environment, or any job in a dedicated release workflow (one that runs on
+`release` or pushed tags, and otherwise only by hand), newly restores files from
+the cache:
 
 - `actions/cache` or `actions/cache/restore` (`actions/cache/save` only writes);
 - `actions/setup-node`, `setup-python` or `setup-java` with a `cache:` input;

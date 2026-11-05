@@ -7,13 +7,35 @@
   request (about 100,000 inputs in two and a half minutes locally, no failures);
   and a published GitHub release gets its package files and Sigstore signatures
   attached by a workflow, so they can be traced to this repository.
-- **Fewer WF010 false positives, clearer advice.** A pull request checkout that
-  puts only documentation in the workspace (non-cone sparse checkout of README
-  or Markdown files) is no longer reported when no later step in the job runs a
-  script or a local action. In audit runs on 60 repositories this removed two
-  findings, both in one project that uses the pattern on purpose, and nothing
-  else. WF010's message now says that pull request code in these workflows
-  shares the default branch's Actions cache even without secrets.
+- **Two new rules for controls a pull request can remove.** WF012 reports a job
+  with write scopes, OIDC, secrets or an environment that newly restores files
+  from the Actions cache, including a version bump that turns caching on by
+  default (`actions/setup-node` v4 to v5, `actions/setup-go` v3 to v4). WF013
+  reports a checkout that stops setting `persist-credentials: false` where the
+  token can write or is a custom token, and says where that version keeps it.
+- **Fixed: a mixed-type comparison could hide a pwn request.** In a
+  `workflow_run` job's `if:`, `... == 'push' || 1 == '1'` was read as ruling out
+  pull request runs, but GitHub converts both sides to numbers and the condition
+  is always true. Comparisons between different types are now unknown, so they
+  never silence WF010 or WF011.
+- **Fixed: documentation-only checkouts were trusted too far.** A sparse
+  checkout of README or Markdown files from the pull request is now quiet only
+  when every later step is `actions/checkout` or `actions/upload-artifact`. Any
+  other action, local or external, may render, template or run those files, so
+  it is reported.
+- **Fewer WF010 false positives from overwritten variables.** Replacing a pull
+  request value with a fixed one (`REF: main`, `echo "REF=main" >>
+  "$GITHUB_ENV"`, or `github.sha`) clears it; a replacement Remit can't resolve
+  keeps it.
+- **WF010 says what it saw.** The message reports the pull request content the
+  job brings in and what the job has. It says the content can be executed, and
+  can write to the branch's Actions cache, only when a later script or local
+  action (or the fetching script itself) runs, and names that step (`runBy`).
+- **Benchmark scripts: failures are no longer zeros.** The field comparison
+  records a tool that crashed or printed unreadable output as failed, leaves
+  that commit out of the tool's counts, and keeps Remit findings on such commits
+  out of the "Remit only" total. The planted-change test counts a detection only
+  when the rule, file, workflow and job all match the planted change.
 - **Project security.** An OpenSSF Scorecard workflow checks the repository's
   own practices and publishes a score (README badge), and Dependabot keeps the
   pinned actions and hash-pinned tools current. The README, setup guide and

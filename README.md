@@ -104,7 +104,7 @@ covers inputs, outputs, code scanning and troubleshooting.
 | WF009 | Third-party code (an action or reusable workflow) newly runs in a job with write scopes, OIDC, secrets or an environment |
 | WF010 | A `pull_request_target`, `workflow_run` or `issue_comment` job newly checks out, fetches or downloads pull request content: the "pwn request" |
 | WF011 | An approval-gated privileged job checks out a pull request reference that can change after approval: time-of-check to time-of-use |
-| WF012 | A job with write scopes, OIDC, secrets or an environment newly restores files from the Actions cache, including caching an action turns on by default in a newer version |
+| WF012 | A job with write scopes, OIDC, secrets or an environment, or in a release workflow, newly restores files from the Actions cache, including caching an action turns on by default in a newer version |
 | WF013 | A checkout stops setting `persist-credentials: false` where the token can write or is a custom token |
 
 Rules follow steps into local composite actions and local reusable workflows

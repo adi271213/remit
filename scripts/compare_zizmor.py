@@ -47,8 +47,11 @@ def zizmor_findings(files, folder):
         target.write_text(text, encoding="utf-8")
     result = subprocess.run(["zizmor", "--offline", "--persona", "pedantic", "--no-config", "--format", "json",
                              str(folder / ".github/workflows")], capture_output=True, text=True, check=False)
+    # 0: no findings; 10-14: findings by severity. Anything else is a failure, not zero findings.
+    if result.returncode not in (0, 10, 11, 12, 13, 14):
+        raise RuntimeError(f"zizmor exited {result.returncode}: {result.stderr.strip()[-300:]}")
     found = Counter()
-    for item in json.loads(result.stdout or "[]"):
+    for item in json.loads(result.stdout):
         location = item["locations"][0]["symbolic"]
         path = ".github/workflows/" + Path(next(iter(location["key"]["Local"].values()))).name
         route = location.get("route", {}).get("route", [])
@@ -63,7 +66,7 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "zizmor-comparison.json")
     args = parser.parse_args()
     version = subprocess.run(["zizmor", "--version"], capture_output=True, text=True, check=True).stdout.strip()
-    rows = []
+    rows, failed = [], []
     for line in (ROOT / "benchmarks/manifest.jsonl").read_text().splitlines():
         case = json.loads(line)
         files = {"base": {}, "head": {}}
@@ -73,8 +76,12 @@ def main():
         if not ours:
             continue
         with tempfile.TemporaryDirectory() as temp:
-            base = zizmor_findings(files["base"], Path(temp) / "base")
-            head = zizmor_findings(files["head"], Path(temp) / "head")
+            try:
+                base = zizmor_findings(files["base"], Path(temp) / "base")
+                head = zizmor_findings(files["head"], Path(temp) / "head")
+            except (RuntimeError, ValueError) as error:
+                failed.append({"pr": case["pr"], "error": str(error)[:300], "findings": len(ours)})
+                continue
         new = {key for key, count in head.items() if count > base.get(key, 0)}
         for finding in ours:
             related = sorted(audit for audit, path, job in new
@@ -87,8 +94,11 @@ def main():
         totals[row["rule"]][0] += 1
         totals[row["rule"]][1] += bool(row["zizmorNew"])
     summary = {"zizmor": version, "findings": len(rows), "alsoSurfacedByZizmor": sum(v[1] for v in totals.values()),
-               "byRule": {rule: {"findings": n, "alsoSurfacedByZizmor": z} for rule, (n, z) in sorted(totals.items())}}
-    args.output.write_text(json.dumps({"summary": summary, "rows": rows}, indent=2) + "\n")
+               "byRule": {rule: {"findings": n, "alsoSurfacedByZizmor": z} for rule, (n, z) in sorted(totals.items())},
+               # Cases where zizmor failed are left out rather than counted as zizmor finding nothing.
+               "casesWhereZizmorFailed": len(failed),
+               "findingsLeftOutBecauseZizmorFailed": sum(item["findings"] for item in failed)}
+    args.output.write_text(json.dumps({"summary": summary, "rows": rows, "failed": failed}, indent=2) + "\n")
     print(json.dumps(summary, indent=2))
 
 
