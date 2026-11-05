@@ -232,3 +232,36 @@ with a valid code and a JSON report.
 **Coverage** under the test suite: 91% of lines and branches in `src/remit`.
 It showed one unused method (removed) and `merge_base`, used by the Action to
 compare from where a pull request branched, without a direct test (added).
+
+## Second review (November 2026)
+
+An outside review found six problems:
+
+- a comparison across types could hide a pwn request;
+- documentation-only checkouts were trusted too far;
+- overwritten variables kept their pull request taint;
+- WF010's message claimed more than Remit saw;
+- the benchmark scripts read a crashed tool as "no findings";
+- there were no checks for cache use and `persist-credentials`.
+
+All six are fixed (changelog, Unreleased). The benchmark fixes changed published
+numbers, and those are corrected above.
+
+**Does the new version make anything worse?** The previous `main` (`168056f`) and
+the new version ran side by side on all 894 field and held-out commits, both as
+a pull request scan and as an audit of the head:
+
+| | Field (446 commits) | Held-out (448 commits) |
+|---|---|---|
+| Findings that disappeared | 0 | 0 |
+| Crashes, or analysis no longer complete | 0 | 0 |
+| New scan findings | 23, all WF012 | 21, all WF012 |
+| New audit findings | 36 WF010, all in deepseek-ai/deepseek-harness | 0 |
+| Time per commit, p95 (old / new) | 2.17 s / 2.22 s | 1.01 s / 1.05 s |
+
+The deepseek findings are the documentation-only checkouts followed by an
+external action. They were quiet in the previous version and are reported again
+on purpose. The message now says that Remit saw no step running the content, and
+asks the reviewer to check the action. The replay of 74 PRs gained one WF012
+finding and nothing else.
+
