@@ -366,6 +366,26 @@ def _uses_default(document: dict, defaults) -> bool:
     return False
 
 
+def _safe_triggers(document: dict) -> set[str]:
+    try:
+        return _triggers(document)
+    except ValueError:
+        return set()
+
+
+def _publishes(document: dict) -> bool:
+    """True for a dedicated release workflow: it runs on releases or pushed tags, and
+    otherwise only when started by hand. A CI workflow that also runs on tags is not one."""
+    found = _safe_triggers(document)
+    on = document.get("on")
+    push = on.get("push") if isinstance(on, dict) else None
+    tags_only = isinstance(push, dict) and bool(push.get("tags")) and not push.get("branches") \
+        and not push.get("branches-ignore")
+    if "push" in found and not tags_only:
+        return False
+    return bool(found) and found <= {"release", "push", "workflow_dispatch"} and ("release" in found or tags_only)
+
+
 def _pin_advice(triggers) -> str:
     """How to check out the approved commit, for the event the job runs on."""
     if "pull_request_target" in triggers:
@@ -668,18 +688,24 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, repository: str | 
             controls = {side: [c for c in flows[side][0] if isinstance(c, Control)] for side in flows}
             third_party = {side: [c for c in flows[side][0] if isinstance(c, Code)] for side in flows}
 
-            # WF012: a job holding write access, OIDC, secrets or an environment newly restores
-            # files from the Actions cache, which other runs of the branch can write.
+            # WF012: a job holding write access, OIDC, secrets or an environment, or one in a
+            # release workflow, newly restores files from the Actions cache, which other runs
+            # of the branch can write.
+            stakes = list(granted)
+            if not stakes and _publishes(after):
+                stakes = ["release" if "release" in _safe_triggers(after) else "tag pushes"]
             old_caches = {c.key for c in controls["base"] if c.kind == "cache"}
             reported = set()
             for control in controls["head"]:
-                if granted and control.kind == "cache" and control.key not in old_caches \
+                if stakes and control.kind == "cache" and control.key not in old_caches \
                         and control.key not in reported:
                     reported.add(control.key)
                     via = f" through {control.file}" if control.file != path else ""
-                    finding("WF012", control.file, name, None, {"cache": control.detail, "privileges": granted},
-                            f"Job {name} now restores files from the Actions cache ({control.detail}){via} while "
-                            f"it has {'; '.join(granted)}. Any run that can write this branch's cache, including "
+                    finding("WF012", control.file, name, None, {"cache": control.detail, "privileges": stakes},
+                            f"Job {name} now restores files from the Actions cache ({control.detail}){via} "
+                            + (f"while it has {'; '.join(granted)}" if granted else
+                               f"in a workflow that runs on {stakes[0]}")
+                            + ". Any run that can write this branch's cache, including "
                             "pull request code in a pull_request_target, workflow_run or issue_comment job, can "
                             "plant files this job then uses. Don't restore caches in jobs that publish, deploy "
                             "or hold secrets.", control.line, workflow=path)

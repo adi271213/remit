@@ -480,6 +480,19 @@ class CacheInPrivilegedJobs(unittest.TestCase):
         report = scan({WF: unprivileged.format(setup="")}, {WF: unprivileged.format(setup=cached)})
         self.assertEqual([f for f in report["findings"] if f["rule"] == "WF012"], [])
 
+    def test_a_release_workflow_counts_even_without_declared_privileges(self):
+        workflow = ("on:\n  push:\n    tags: ['v*']\njobs:\n  publish:\n    runs-on: ubuntu-latest\n    steps:\n"
+                    "      - uses: actions/checkout@v4\n{setup}      - run: ./gradlew publish\n")
+        setup = "      - uses: actions/setup-java@v4\n        with:\n          cache: gradle\n"
+        found = [f for f in scan({WF: workflow.format(setup="")}, {WF: workflow.format(setup=setup)})["findings"]
+                 if f["rule"] == "WF012"]
+        self.assertEqual(len(found), 1)
+        self.assertIn("in a workflow that runs on tag pushes", found[0]["message"])
+        # A CI workflow that also runs on branches and tags is not a release workflow.
+        ci = workflow.replace("    tags: ['v*']", "    branches: [main]\n    tags: ['v*']")
+        self.assertEqual([f for f in scan({WF: ci.format(setup="")}, {WF: ci.format(setup=setup)})["findings"]
+                          if f["rule"] == "WF012"], [])
+
     def test_a_cache_in_a_local_composite_action_is_reported_there(self):
         action = ("runs:\n  using: composite\n  steps:\n    - uses: actions/setup-node@v4\n      with:\n"
                   "        cache: pnpm\n")

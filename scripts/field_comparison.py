@@ -145,7 +145,8 @@ def remit(base, head, slug):
     run = subprocess.run([sys.executable, "-m", "remit", "scan", "--dirs", str(base), str(head),
                           "--repository-name", slug], capture_output=True, text=True, check=False,
                          env={**os.environ, "PYTHONPATH": str(ROOT / "src")})
-    if run.returncode:
+    # 0: complete analysis; 2: a report whose analysis is incomplete or has errors.
+    if run.returncode not in (0, 2):
         raise RuntimeError(f"remit exited {run.returncode}: {run.stderr.strip()[-300:]}")
     report = json.loads(run.stdout)
     keys = ("rule", "file", "job", "jobs", "line", "after")
