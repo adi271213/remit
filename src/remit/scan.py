@@ -177,19 +177,6 @@ class Locations:
             return self.job(name)
         return _keys(block[1]).get(scope, block)[0]
 
-    def uses(self, name, reference):
-        """Line of the job's `uses:` (job-level or step) whose value is `reference`."""
-        line, value = self.jobs.get(name, (None, None))
-        fields = _keys(value)
-        candidates = [fields.get("uses")]
-        steps = fields.get("steps", (None, None))[1]
-        if isinstance(steps, yaml.nodes.SequenceNode):
-            candidates += [_keys(step).get("uses") for step in steps.value]
-        for item in candidates:
-            if item and isinstance(item[1], yaml.nodes.ScalarNode) and item[1].value == reference:
-                return item[0]
-        return line
-
     def secret(self, name, secret):
         """Line of the first scalar in the job (then workflow env) that references the secret."""
         line, value = self.jobs.get(name, (None, None))

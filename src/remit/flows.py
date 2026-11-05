@@ -5,6 +5,7 @@ reusable workflows (`uses: ./.github/workflows/x.yml`), with bounded depth.
 GitHub's same-repository form (`uses: $/path`) is followed the same way.
 Nothing is executed; files are read through the snapshot's bounded reader.
 """
+import bisect
 from dataclasses import dataclass, field
 import re
 
@@ -144,20 +145,24 @@ def _strings(value):
 
 
 # Pull request data looked up while the job runs, after any approval.
-PR_API = re.compile(r"\bgh\s+pr\s+view\b|\bgh\s+api\b[^\n]*\bpulls\b|api\.github\.com/repos/[^\s'\"]*/pulls",
-                    re.IGNORECASE)
+GH_PR_VIEW = re.compile(r"\bgh\s+pr\s+view\b", re.IGNORECASE)
+GH_API = re.compile(r"\bgh\s+api\b", re.IGNORECASE)
+PULLS = re.compile(r"\bpulls\b", re.IGNORECASE)
+API_URL = "api.github.com/repos/"
 JS_IMMUTABLE = re.compile(r"payload\s*\.\s*(?:pull_request\s*\.\s*head\s*\.\s*sha|workflow_run\s*\.\s*head_sha)",
                           re.IGNORECASE)
 JS_MUTABLE = re.compile(r"payload\s*\.\s*(?:pull_request\s*\.\s*head\s*\.\s*ref|workflow_run\s*\.\s*head_branch)",
                         re.IGNORECASE)
-EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+# The regular expressions below are applied to repository-controlled text, so each scan is
+# linear in its input: an attacker's pull request can make a line as long as a workflow file.
 ENV_REF = re.compile(r"\benv\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)")
 STEP_OUTPUT_REF = re.compile(r"\bsteps\s*\.\s*([A-Za-z_][\w-]*)\s*\.\s*outputs\s*\.\s*([A-Za-z_][\w-]*)")
 NEEDS_OUTPUT_REF = re.compile(r"\bneeds\s*\.\s*([A-Za-z_][\w-]*)\s*\.\s*outputs\s*\.\s*([A-Za-z_][\w-]*)")
 INPUT_REF = re.compile(r"\binputs\s*\.\s*([A-Za-z_][\w-]*)")
 SHELL_VAR = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
-# echo "name=value" >> "$GITHUB_OUTPUT" / $GITHUB_ENV
-FILE_WRITE = re.compile(r"""([A-Za-z_][\w-]*)=(.*?)["']?\s*>>\s*["']?\$\{?(GITHUB_OUTPUT|GITHUB_ENV)\}?""")
+# The target of echo "name=value" >> "$GITHUB_OUTPUT" / $GITHUB_ENV, matched where a >> starts.
+FILE_TARGET = re.compile(r""">>\s*["']?\$\{?(GITHUB_OUTPUT|GITHUB_ENV)\}?""")
+NAME_START = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_")
 SET_OUTPUT = re.compile(r"""setOutput\(\s*['"]([\w-]+)['"]\s*,\s*([^)\n]*)\)""")
 
 
@@ -166,6 +171,76 @@ class Taint:
     """A value that carries pull request content, and where it came from."""
     source: str
     mutable: bool
+
+
+def expressions(text: str) -> list[str]:
+    """The contents of each ${{ ... }} in text, as the lazy pattern \\$\\{\\{(.*?)\\}\\} would find them."""
+    found, position = [], 0
+    while (start := text.find("${{", position)) >= 0:
+        end = text.find("}}", start + 3)
+        if end < 0:
+            break
+        found.append(text[start + 3:end])
+        position = end + 2
+    return found
+
+
+def without_expressions(text: str) -> str:
+    """text with every complete ${{ ... }} removed."""
+    parts, position = [], 0
+    while (start := text.find("${{", position)) >= 0:
+        end = text.find("}}", start + 3)
+        if end < 0:
+            break
+        parts.append(text[position:start])
+        position = end + 2
+    parts.append(text[position:])
+    return "".join(parts)
+
+
+def pull_request_lookup(text: str) -> bool:
+    """gh pr view, gh api ... pulls on one line, or an api.github.com/repos/.../pulls URL."""
+    if GH_PR_VIEW.search(text):
+        return True
+    # gh and api may be split across lines (\s+), but pulls must follow on the line where api ends.
+    pulls = [found.start() for found in PULLS.finditer(text)]
+    for found in GH_API.finditer(text):
+        line_end = text.find("\n", found.end())
+        line_end = len(text) if line_end < 0 else line_end
+        after = bisect.bisect_left(pulls, found.end())
+        if after < len(pulls) and pulls[after] < line_end:
+            return True
+    lowered = text.casefold()
+    for token in re.split(r"[\s'\"]+", lowered):
+        index = token.find(API_URL)
+        if index >= 0 and "/pulls" in token[index + len(API_URL):]:
+            return True
+    return False
+
+
+def file_writes(line: str) -> list[tuple[str, str, str]]:
+    """(name, value, GITHUB_OUTPUT | GITHUB_ENV) for each echo "name=value" >> target on a line."""
+    writes, segment_start, position = [], 0, 0
+    while (arrow := line.find(">>", position)) >= 0:
+        target = FILE_TARGET.match(line, arrow)
+        if not target:
+            position = arrow + 1
+            continue
+        segment = line[segment_start:arrow]
+        equals = -1
+        while (equals := segment.find("=", equals + 1)) >= 0:
+            start = equals
+            while start > 0 and (segment[start - 1].isalnum() or segment[start - 1] in "_-"):
+                start -= 1
+            first = next((i for i in range(start, equals) if segment[i] in NAME_START), None)
+            if first is not None:
+                value = segment[equals + 1:].rstrip()
+                if value[-1:] in ("'", '"'):
+                    value = value[:-1]
+                writes.append((segment[first:equals], value, target.group(1)))
+                break
+        position = segment_start = target.end()
+    return writes
 
 
 def _combine(taints):
@@ -200,7 +275,7 @@ def taint_of(value, ctx: Context, shell: bool = False) -> Taint | None:
     if IMMUTABLE_REF.search(value) or MUTABLE_REF.search(value):
         match = IMMUTABLE_REF.search(value) or MUTABLE_REF.search(value)
         found.append(Taint(match.group(0), bool(MUTABLE_REF.search(value)) and not IMMUTABLE_REF.search(value)))
-    for expression in EXPRESSION.findall(value):
+    for expression in expressions(value):
         found += [ctx.env_expression(m.group(1)) for m in ENV_REF.finditer(expression)]
         found += [ctx.outputs.get((m.group(1).casefold(), m.group(2).casefold()))
                   for m in STEP_OUTPUT_REF.finditer(expression)]
@@ -208,9 +283,8 @@ def taint_of(value, ctx: Context, shell: bool = False) -> Taint | None:
                   for m in NEEDS_OUTPUT_REF.finditer(expression)]
         found += [ctx.inputs.get(m.group(1).casefold()) for m in INPUT_REF.finditer(expression)]
     if shell:
-        without_expressions = EXPRESSION.sub("", value)
-        found += [ctx.env.get(m.group(1)) for m in SHELL_VAR.finditer(without_expressions)]
-        if PR_API.search(value):
+        found += [ctx.env.get(m.group(1)) for m in SHELL_VAR.finditer(without_expressions(value))]
+        if pull_request_lookup(value):
             found.append(Taint("pull request data looked up while the job runs", True))
     return _combine(found)
 
@@ -273,7 +347,7 @@ def _record_writes(step: dict, ctx: Context):
     run = step.get("run")
     if isinstance(run, str):
         for line in run.splitlines():
-            for name, value, target in FILE_WRITE.findall(line):
+            for name, value, target in file_writes(line):
                 taint = taint_of(value, ctx, shell=True)
                 if taint is None:
                     continue
