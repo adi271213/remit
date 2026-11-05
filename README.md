@@ -8,6 +8,7 @@
 [![PyPI](https://img.shields.io/pypi/v/remit-actions)](https://pypi.org/project/remit-actions/)
 [![Python](https://img.shields.io/pypi/pyversions/remit-actions)](https://pypi.org/project/remit-actions/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/adi271213/remit/blob/main/LICENSE)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/adi271213/remit/badge)](https://scorecard.dev/viewer/?uri=github.com/adi271213/remit)
 
 </div>
 
@@ -22,6 +23,14 @@ introduced it, so reviewers can't miss them.
 - **Right on the diff.** Findings appear as annotations in the PR's *Files changed* tab.
 - **Safe on untrusted PRs.** The PR is read as data and never executed; the analysis makes no network calls.
 - **Nothing to install.** A pinned Action with a hash-verified bundled parser; no secrets, `contents: read` only.
+
+> **Remit helps reviewers; it doesn't replace them.** It points at privilege
+> changes so a person can judge them, and it never blocks a merge. It can't see
+> code outside workflow files (a script a privileged job runs), code inside other
+> repositories' actions, or your repository's default token permissions, and a
+> pull request can edit the workflow that runs it. Pair it with a `CODEOWNERS`
+> rule so that changes under `.github/` need approval from someone who knows your
+> CI ([setup](https://github.com/adi271213/remit/blob/main/SETUP.md#install)).
 
 ## What it catches
 
