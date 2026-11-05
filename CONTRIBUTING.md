@@ -65,7 +65,7 @@ the PR's base commit.
    and the contract workflow.
 
 PyPI trusted publishing needs a one-time setup on pypi.org: add a pending
-publisher for project `remit`, owner `adi271213`, repository
+publisher for project `remit-actions`, owner `adi271213`, repository
 `remit`, workflow `publish.yml`, environment `pypi`.
 
 Tags are never moved or deleted after publication.
