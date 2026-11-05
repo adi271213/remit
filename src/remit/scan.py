@@ -1,11 +1,13 @@
 """Deliberately limited rules over configured capabilities and contexts, per job."""
 import copy
+import json
 import re
 from typing import Any
 import yaml
 
-from .sources import MAX_FILE, Snapshot
+from .sources import MAX_FILE, Oversized, Snapshot
 from .contexts import compare_contexts
+from .conditions import workflow_run_excludes_pull_requests
 from .flows import PRIVILEGED_TRIGGERS, LocalCode, gate
 from .expressions import IDENTIFIER
 from .yaml_limits import MAX_ALIASES, validate_graph
@@ -97,7 +99,7 @@ def load_yaml(text: str):
 
     Returns (document, root node). Raises ValueError or yaml.YAMLError.
     """
-    if len(text.encode()) > MAX_FILE:
+    if isinstance(text, Oversized) or len(text.encode()) > MAX_FILE:
         raise ValueError("Workflow exceeds byte limit.")
     depth = 0
     count = 0
@@ -377,14 +379,15 @@ def _pin_advice(triggers) -> str:
             "exactly that SHA.")
 
 
+REPOSITORY_NAME = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+")
 AUDIT_RULES = ("WF010", "WF011")
 AUDIT_LIMITATION = ("Audit mode reports the current state for WF010 and WF011 only: pull request content reachable "
                     "from pull_request_target, workflow_run and issue_comment jobs.")
 
 
-def audit(snapshot: Snapshot, defaults=None) -> dict:
+def audit(snapshot: Snapshot, defaults=None, *, repository: str | None = None) -> dict:
     """Current-state report: where privileged workflows bring in pull request content."""
-    report = compare(Snapshot("empty", {}), snapshot, defaults, _audit=True)
+    report = compare(Snapshot("empty", {}), snapshot, defaults, repository=repository, _audit=True)
     report.update({"mode": "audit", "base": None, "renames": [], "inheritedComparisons": [], "assumptions": []})
     report["findings"] = [f for f in report["findings"] if f["rule"] in AUDIT_RULES]
     # Keep what can hide an audited finding: unreadable files or triggers, and local code
@@ -399,7 +402,46 @@ def audit(snapshot: Snapshot, defaults=None) -> dict:
     return report
 
 
-def compare(base: Snapshot, head: Snapshot, defaults=None, *, _audit=False) -> dict:
+def _merge_shared(findings: list) -> list:
+    """One finding per change in a shared local action or reusable workflow, listing every job it reaches.
+
+    A change inside, say, .github/actions/setup is otherwise reported once per job that uses it.
+    """
+    merged, order = {}, []
+    for item in findings:
+        if "workflow" not in item or item["job"] is None:
+            order.append(item)
+            continue
+        key = (item["rule"], item["file"], item["line"], json.dumps(item["after"], sort_keys=True))
+        if key not in merged:
+            merged[key] = {**item, "jobs": [{"workflow": item["workflow"], "job": item["job"]}]}
+            order.append(merged[key])
+            continue
+        entry = {"workflow": item["workflow"], "job": item["job"]}
+        if entry not in merged[key]["jobs"]:
+            merged[key]["jobs"].append(entry)
+    for item in merged.values():
+        names = list(dict.fromkeys(entry["job"] for entry in item["jobs"]))
+        if len(item["jobs"]) == 1:
+            del item["jobs"]
+        elif item["message"].startswith(f"Job {item['job']} "):
+            rest = item["message"][len(f"Job {item['job']} "):]
+            if len(names) == 1:
+                workflows = len({entry["workflow"] for entry in item["jobs"]})
+                item["message"] = f"Job {names[0]}, in each of {workflows} workflows, " + rest
+            else:
+                listed = ", ".join(names[:-1]) + f" and {names[-1]}"
+                item["message"] = f"Each of jobs {listed} " + rest
+    return order
+
+
+def compare(base: Snapshot, head: Snapshot, defaults=None, *, repository: str | None = None,
+            _audit=False) -> dict:
+    """Privilege changes from base to head.
+
+    repository is the analysed repository's owner/repo, when known, so that references to it
+    by full name are treated as its own code rather than third-party code.
+    """
     report = {"schemaVersion": SCHEMA_VERSION, "base": base.identity, "head": head.identity,
               "analysis": "complete", "review": "none", "findings": [], "diagnostics": [],
               "renames": [], "examinedFiles": [], "limitations": LIMITATIONS.copy(),
@@ -431,19 +473,43 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, _audit=False) -> d
             old_only.remove(old)
             renamed.add(new)
             report["renames"].append({"before": old, "after": new})
-    base_local, head_local = LocalCode(base, load_yaml), LocalCode(head, load_yaml)
+    if repository is not None and not REPOSITORY_NAME.fullmatch(repository):
+        raise ValueError("Repository name must be owner/repo.")
+    # Most files are identical on both sides, so each distinct text is parsed once. Parsed
+    # documents are only read, never modified, so the two sides can share them.
+    memo = {}
+
+    def cached(function):
+        def call(text):
+            key = (function, text)
+            if key not in memo:
+                try:
+                    memo[key] = (True, function(text))
+                except (ValueError, yaml.YAMLError, RecursionError) as exc:
+                    memo[key] = (False, exc)
+            ok, value = memo[key]
+            if not ok:
+                raise value
+            return value
+        return call
+    parse = cached(_parse)
+    base_local = LocalCode(base, cached(load_yaml), repository)
+    head_local = LocalCode(head, cached(load_yaml), repository)
 
     def local_code_changed(path):
-        """True when an unchanged workflow reaches local code that changed."""
-        paths = set()
-        for local in (base_local, head_local):
-            text = local.text(path)
-            if text is None:
-                continue
-            try:
-                paths |= local.dependencies(_parse(text)[0])
-            except (ValueError, yaml.YAMLError, RecursionError):
-                continue
+        """True when an unchanged workflow reaches local code that changed.
+
+        Only called when the workflow's text is the same on both sides. If every file the
+        base side reaches is also unchanged, the head side reaches exactly the same files,
+        so walking the base side is enough: the first changed file on any path is found there.
+        """
+        text = base_local.text(path)
+        if text is None:
+            return False
+        try:
+            paths = base_local.dependencies(parse(text)[0])
+        except (ValueError, yaml.YAMLError, RecursionError):
+            return False
         return any(base_local.text(dep) != head_local.text(dep) for dep in paths)
 
     for path in sorted(head.files):
@@ -459,8 +525,12 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, _audit=False) -> d
             if text is None:
                 documents[side] = {"on": [], "jobs": {}}
                 continue
+            if isinstance(text, Oversized):
+                diagnostic(path, side, f"Workflow is larger than the {MAX_FILE // (1024 * 1024)} MiB analysis "
+                                       "limit and was not read.")
+                continue
             try:
-                documents[side], located = _parse(text)
+                documents[side], located = parse(text)
                 nodes[side] = located
                 if side == "head":
                     lines = located
@@ -537,7 +607,9 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, _audit=False) -> d
             else:
                 for scope in sorted(SCOPES):
                     old, new = old_value[scope], new_value[scope]
-                    if LEVELS[new] > LEVELS[old]:
+                    # A new job that declares read access is narrower than any default
+                    # token, so only its write scopes (and id-token) are increases.
+                    if LEVELS[new] > LEVELS[old] and not (old_job is None and new == "read"):
                         capability = "request an OIDC identity token" if scope == "id-token" else f"use {scope}: {new}"
                         finding("WF001", path, name, {scope: old}, {scope: new},
                                 f"Job {name} is newly configured to {capability}. Runtime access is not verified.",
@@ -588,11 +660,16 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, _audit=False) -> d
                             code.line, workflow=path)
 
             # WF010 / WF011: pull request content brought into a privileged workflow.
-            def privileged(document, exists):
+            def privileged(document, exists, job_name=name):
                 try:
-                    return set(_triggers(document)) & set(PRIVILEGED_TRIGGERS) if exists else set()
+                    found = set(_triggers(document)) & set(PRIVILEGED_TRIGGERS) if exists else set()
                 except ValueError:
                     return set()
+                # A workflow_run job whose condition (or a needed job's) rules out runs caused by
+                # pull requests never receives pull request content through that trigger.
+                if "workflow_run" in found and workflow_run_excludes_pull_requests(document, job_name):
+                    found.discard("workflow_run")
+                return found
             head_triggers = privileged(after, True)
             if not head_triggers:
                 continue
@@ -633,6 +710,7 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, _audit=False) -> d
                             f"({fetch.ref}){via} where it can use {capability_text}. Code from the pull request "
                             "can act with those privileges; run it in a separate job without secrets or write "
                             "access.", fetch.line, workflow=path)
+    report["findings"] = _merge_shared(report["findings"])
     if report["inheritedComparisons"]:
         report["assumptions"].append(
             "Unchanged inherited permissions for matched job IDs compare symbolically, assuming external "

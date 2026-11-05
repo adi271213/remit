@@ -9,9 +9,12 @@ import re
 import stat
 import subprocess
 
-MAX_FILE = 256 * 1024
-MAX_TOTAL = 4 * 1024 * 1024
-MAX_FILES = 200
+MAX_FILE = 1024 * 1024
+MAX_TOTAL = 16 * 1024 * 1024
+MAX_FILES = 400
+# Larger workflow files are fingerprinted, not read: unchanged ones stay quiet and
+# changed ones make that file's analysis incomplete. Directory reads stop here.
+MAX_HASHED = 64 * 1024 * 1024
 # Local actions read on demand, beyond .github/workflows.
 MAX_EXTRA_FILES = 100
 WORKFLOW = re.compile(r"^\.github/workflows/[^/]+\.ya?ml$")
@@ -19,6 +22,13 @@ WORKFLOW = re.compile(r"^\.github/workflows/[^/]+\.ya?ml$")
 
 class InputError(ValueError):
     pass
+
+
+class Oversized(str):
+    """Stands in for a workflow over MAX_FILE: equal when the content is equal, never parsed."""
+
+    def __new__(cls, fingerprint: str):
+        return super().__new__(cls, "\0oversized:" + fingerprint)
 
 
 @dataclass
@@ -80,13 +90,28 @@ def _text(blob: bytes) -> str | None:
         return None
 
 
+def _stored(blobs) -> int:
+    return sum(len(blob) for blob in blobs.values() if not isinstance(blob, Oversized))
+
+
+def _fingerprint(start: bytes, handle) -> Oversized:
+    digest, size = hashlib.sha256(start), len(start)
+    while chunk := handle.read(1024 * 1024):
+        size += len(chunk)
+        if size > MAX_HASHED:
+            raise InputError("A workflow exceeds the maximum readable size.")
+        digest.update(chunk)
+    return Oversized(digest.hexdigest())
+
+
 def _decode(files: dict[str, bytes]) -> dict[str, str]:
-    if len(files) > MAX_FILES or sum(map(len, files.values())) > MAX_TOTAL:
+    if len(files) > MAX_FILES or _stored(files) > MAX_TOTAL:
         raise InputError("Workflow snapshot exceeds file-count or total-byte limit.")
     result = {}
     for name, content in sorted(files.items()):
-        if len(content) > MAX_FILE:
-            raise InputError("A workflow exceeds the per-file byte limit.")
+        if isinstance(content, Oversized):
+            result[name] = content
+            continue
         try:
             result[name] = content.decode("utf-8-sig", errors="strict")
         except UnicodeError as exc:
@@ -118,15 +143,18 @@ def directory(root: str | Path) -> Snapshot:
                     raise InputError("Workflow input is not a regular file.")
                 with os.fdopen(fd, "rb", closefd=False) as handle:
                     content = handle.read(MAX_FILE + 1)
+                    if len(content) > MAX_FILE:
+                        content = _fingerprint(content, handle)
             finally:
                 os.close(fd)
             blobs[path.relative_to(root).as_posix()] = content
-            if len(blobs) > MAX_FILES or sum(map(len, blobs.values())) > MAX_TOTAL:
+            if len(blobs) > MAX_FILES or _stored(blobs) > MAX_TOTAL:
                 raise InputError("Workflow snapshot exceeds file-count or total-byte limit.")
     files = _decode(blobs)
     digest = hashlib.sha256()
     for name, blob in sorted(blobs.items()):
-        digest.update(name.encode() + b"\0" + hashlib.sha256(blob).digest())
+        content = blob.encode() if isinstance(blob, Oversized) else blob
+        digest.update(name.encode() + b"\0" + hashlib.sha256(content).digest())
     budget = _Budget()
 
     def read(path: str) -> str | None:
@@ -197,8 +225,13 @@ def git_snapshot(repo: str | Path, ref: str) -> Snapshot:
         if mode not in ("100644", "100755") or kind != "blob":
             raise InputError("Git workflow input is not a regular file.")
         size = int(_git(repo, "cat-file", "-s", oid))
+        if len(blobs) >= MAX_FILES:
+            raise InputError("Workflow snapshot exceeds input limits.")
+        if size > MAX_FILE:
+            blobs[name] = Oversized(oid)  # the object ID already identifies the content
+            continue
         total += size
-        if size > MAX_FILE or total > MAX_TOTAL or len(blobs) >= MAX_FILES:
+        if total > MAX_TOTAL:
             raise InputError("Workflow snapshot exceeds input limits.")
         blobs[name] = _git(repo, "cat-file", "blob", oid)
     budget = _Budget()
