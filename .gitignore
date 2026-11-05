@@ -10,3 +10,9 @@ validation-results.json
 .benchmark-cache/
 benchmark-results.json
 zizmor-comparison.json
+
+# Fuzzer output
+crash-*
+leak-*
+timeout-*
+oom-*
