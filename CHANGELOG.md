@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+From a held-out validation (30 more repositories, planted changes and fuzzing;
+see `benchmarks/README.md`):
+
+- **Fixed: slow scans on hostile input.** Three patterns that read script lines
+  and expressions backtracked on long, specially shaped text: a 200 KB line in a
+  pull request could take minutes, enough to time the Action out. They are now
+  linear scans with identical results, checked against the old patterns on
+  300,000 random strings; a 1 MB hostile line takes about 1.6 s.
+- **Less WF002 noise.** Replacing the default token with a read-only block is
+  hardening and no longer reported; a block with a write scope still is. A new
+  job in a workflow whose jobs already used the default is quiet; the first such
+  job, or a new workflow, is still reported. In the held-out repositories these
+  were 41 of 55 WF002 findings.
+
 From running Remit, zizmor, poutine and actionlint on 446 recent workflow
 commits in 30 popular repositories (see `benchmarks/README.md`):
 

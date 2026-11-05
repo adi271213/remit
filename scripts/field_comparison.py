@@ -6,6 +6,7 @@ checked out, and each tool runs on both sides. A state tool's findings count whe
 are new at the commit; Remit compares the two sides itself.
 
     python scripts/field_comparison.py run --cache .field-cache --output field-results.jsonl
+    python scripts/field_comparison.py run --commits benchmarks/heldout/commits.tsv --output heldout.jsonl
     python scripts/field_comparison.py summarize field-results.jsonl
 
 zizmor, poutine and actionlint are used when they are on PATH. Network access to
@@ -129,7 +130,7 @@ def run(args):
     done = set()
     if args.output.exists():
         done = {json.loads(line)["commit"] for line in args.output.read_text().splitlines() if line}
-    rows = [line.split("\t") for line in COMMITS.read_text().splitlines()[1:]]
+    rows = [line.split("\t") for line in args.commits.read_text().splitlines()[1:]]
     with args.output.open("a") as out:
         for slug, commit, parent in rows:
             if commit in done:
@@ -189,6 +190,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
     runner = commands.add_parser("run")
+    runner.add_argument("--commits", type=Path, default=COMMITS)
     runner.add_argument("--cache", type=Path, default=ROOT / ".field-cache")
     runner.add_argument("--output", type=Path, default=ROOT / "field-results.jsonl")
     summary = commands.add_parser("summarize")
