@@ -21,6 +21,10 @@ RULES = {
                                                           "pull request content."),
     "WF011": ("mutable-ref-after-approval", "An approval-gated privileged job checks out a pull request reference "
                                             "that can change after approval (TOCTOU)."),
+    "WF012": ("cache-in-privileged-job", "A job with write scopes, OIDC, secrets or an environment newly restores "
+                                         "files from the Actions cache."),
+    "WF013": ("checkout-credentials-kept", "A checkout stops setting persist-credentials: false where the token "
+                                           "can write or is a custom token."),
     "WF009": ("third-party-code-in-privileged-job", "Third-party code newly runs in a job with write scopes, OIDC, "
                                                     "secrets or an environment."),
 }

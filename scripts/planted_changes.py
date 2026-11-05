@@ -355,6 +355,19 @@ def run_case(repo, path, made):
                    Snapshot("h", workflows(head_files), head_files.get), repository=repo)
 
 
+def matches(finding, expected, path, name, extra):
+    """A detection counts only for the planted change itself: the expected rule, on the
+    workflow or an action file the operator planted, for the planted workflow and job."""
+    if finding["rule"] not in expected or finding.get("file") not in {path, *extra}:
+        return False
+    places = {(entry.get("workflow"), entry.get("job")) for entry in finding.get("jobs") or []}
+    # "workflow" is set only when the finding sits in another file (an action or reusable workflow).
+    places.add((finding.get("workflow", finding.get("file")), finding.get("job")))
+    if finding["rule"] == "WF003":  # a trigger belongs to the workflow, not a job
+        return any(workflow == path for workflow, _ in places)
+    return (path, name) in places
+
+
 def run(args):
     corpus.update(json.loads(args.corpus.read_text()))
     sites = []
@@ -391,8 +404,7 @@ def run(args):
                 report = run_case(repo, path, made)
                 found = [(f["rule"], f["job"], [j["job"] for j in f.get("jobs") or []]) for f in report["findings"]]
                 if isinstance(expected, set):
-                    hit = any(rule in expected and (rule == "WF003" or job == name or name in jobs)
-                              for rule, job, jobs in found)
+                    hit = any(matches(f, expected, path, name, made[2]) for f in report["findings"])
                     outcome = "detected" if hit else "missed"
                 elif expected == "none":
                     outcome = "quiet" if not found else "false alarm"

@@ -23,6 +23,10 @@ REVIEW_GUIDANCE = {
               "it treats as data."),
     "WF011": ("Make the job check out the exact commit that was approved (a SHA captured at approval time), not a "
               "branch or pull request ref that can move after approval."),
+    "WF012": ("Check whether this job publishes, deploys or uses its secrets on files restored from the cache. If "
+              "it does, build it from a clean install instead."),
+    "WF013": ("Restore persist-credentials: false unless a later step needs the stored token, for example to "
+              "push."),
     "WF008": ("Confirm that each newly paired runner should use that environment. Review runner access, "
               "environment-scoped settings and protection rules."),
 }

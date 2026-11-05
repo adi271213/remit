@@ -191,24 +191,37 @@ an existing checkout becomes privileged because the trigger changed, and when th
 pattern appears inside a local action or reusable workflow the job uses. A
 version bump of a download action is quiet.
 
-A checkout that puts only documentation in the workspace is not reported: a
-sparse checkout with `sparse-checkout-cone-mode: false` that lists only Markdown,
-reStructuredText or AsciiDoc files, or files named README, LICENSE, COPYING,
-NOTICE, AUTHORS or CHANGELOG, in a job where no later step runs a script or a
-local action. Each condition matters: in cone mode Git also checks out every file
-at the repository root, wildcards and other files (including `requirements.txt`)
-can be build input, and a later script could restore the whole tree. A
-documentation-only checkout inside a composite action is still reported, since
-the calling job's later steps aren't visible there.
+A checkout that puts only documentation in the workspace is not reported when
+nothing later in the job can execute or interpret it: a sparse checkout with
+`sparse-checkout-cone-mode: false` that lists only Markdown, reStructuredText or
+AsciiDoc files, or files named README, LICENSE, COPYING, NOTICE, AUTHORS or
+CHANGELOG, followed only by `actions/checkout` or `actions/upload-artifact`
+steps. Each condition matters: in cone mode Git also checks out every file at
+the repository root; wildcards and other files (including `requirements.txt`)
+can be build input; a later script could restore the whole tree; and any other
+action, local or external, may render, template or run what it reads, so its
+behaviour is treated as unknown. A documentation-only checkout inside a
+composite action is still reported, since the calling job's later steps aren't
+visible there.
 
-The finding also points out that, even with no secrets and a read-only token,
-pull request code in these workflows shares the default branch's Actions cache,
-which later trusted runs may restore.
+The finding states what Remit saw: the content brought in, the trigger and what
+the job has. It says the content can be executed only when a later step in the
+same steps list runs a script or a local action, or when the script that fetched
+it also runs other commands (anything but `git`, `gh` and a few shell built-ins);
+it names that step and records it as `runBy`. Only then does it add that the code
+can write to the Actions cache of the branch the workflow runs on, which later
+trusted runs may restore. Without such a step it asks the reviewer to check
+whether the actions that follow execute or interpret the files.
 
 A pull request reference is followed to where it is used through:
 
 - environment variables at workflow, job and step level (`${{ env.X }}`, or
-  `$X` / `${X}` on the script line), and variables written to `$GITHUB_ENV`;
+  `$X` / `${X}` on the script line), and variables written to `$GITHUB_ENV`.
+  Replacing a variable with a fixed value (`REF: main`, `echo "REF=main" >>
+  "$GITHUB_ENV"`) or with `github.sha`, `github.ref`, `github.ref_name`,
+  `github.base_ref`, the repository's default branch or the pull request's base
+  clears it; a step's own `env:` does so for that step only. A replacement Remit
+  can't resolve (an input, a variable, command output) keeps the earlier value;
 - step outputs written to `$GITHUB_OUTPUT` or with `core.setOutput()` in
   `actions/github-script` (`${{ steps.id.outputs.x }}`);
 - job outputs, for jobs that list the producing job in `needs`
@@ -250,6 +263,45 @@ The `issue_comment` event carries no pull request commit, so for comment
 commands the fix is to have the command name the approved commit SHA and check
 out exactly that.
 
+## WF012: Actions cache in a privileged job
+
+Pull request code that runs in a `pull_request_target`, `workflow_run` or
+`issue_comment` job shares the Actions cache of the branch the workflow runs on,
+and can write entries to it. A job that later restores that cache while it
+publishes, deploys or holds secrets builds with whatever was planted. WF012 is
+reported when a job with write scopes, `id-token: write`, secrets or an
+environment newly restores files from the cache:
+
+- `actions/cache` or `actions/cache/restore` (`actions/cache/save` only writes);
+- `actions/setup-node`, `setup-python` or `setup-java` with a `cache:` input;
+- `actions/setup-node` v5 or later without `package-manager-cache: false`, which
+  caches npm when `package.json` names npm as its `packageManager`;
+- `actions/setup-go` with `cache: true`, or v4 or later unless `cache: false`;
+- `actions/setup-dotnet` with `cache: true`, `ruby/setup-ruby` with
+  `bundler-cache: true`, `astral-sh/setup-uv` with `enable-cache: true`,
+  `Swatinem/rust-cache`, and `gradle/actions/setup-gradle` unless
+  `cache-disabled: true`.
+
+So a version bump that turns caching on, such as `setup-node@v4` to `@v5`, is
+reported. A version that can't be read from the reference (a SHA or a branch)
+is not assumed to turn on a default. Changing what is cached by an action that
+already cached (`cache: npm` to `cache: pnpm`) is quiet, and so is a job that
+gains privileges while it already used the cache (WF001 or WF004 report that).
+Steps in local composite actions count, with the finding on the action file.
+
+## WF013: checkout keeps the token
+
+`actions/checkout` keeps the job's token for later Git commands unless
+`persist-credentials: false` is set. Before v6 it is written to the
+repository's `.git/config`, where a later step can read it and a workspace
+upload can publish it; from v6 it is kept in a file outside the workspace, still
+readable by later steps. WF013 is reported when a checkout in a job (matched by
+its `repository` and `path` inputs) had `persist-credentials: false` and no
+longer does, including when the value becomes an expression. It applies when the
+token is worth taking: the job can write, uses the repository's default
+permissions, or passes a custom `token:`. Checkout v1 did not keep the token, and
+a new checkout without the setting is quiet.
+
 ## Local code
 
 Steps are followed into code the repository itself provides:
@@ -287,6 +339,9 @@ or `workflow_run` event, as with `github.event.workflow_run.event == 'push'`, th
 job can't receive pull request content through that trigger and WF010/WF011 stay
 quiet for it. Anything that can't be decided, such as a function call or another
 property, counts as possibly true, so the check only ever errs toward reporting.
+So does a comparison between values of different types: GitHub converts those to
+numbers, which makes `1 == '1'`, `null == ''` and `'0x1' == 1` true, and Remit
+doesn't try to reproduce that.
 A `workflow_run` `branches:` filter is not enough on its own: a fork's pull request
 can come from a branch with the same name.
 

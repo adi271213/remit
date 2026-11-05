@@ -12,7 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 MAX_ANNOTATIONS = 10  # GitHub displays at most 10 warning annotations per step.
 # Annotation order when findings exceed that limit: pull request content in privileged jobs first,
 # then third-party code, triggers and secrets, then configuration changes.
-RULE_ORDER = ("WF010", "WF011", "WF009", "WF003", "WF004", "WF001", "WF002", "WF005", "WF007", "WF008")
+RULE_ORDER = ("WF010", "WF011", "WF009", "WF012", "WF003", "WF004", "WF001", "WF013", "WF002", "WF005", "WF007",
+              "WF008")
 OUTPUT_KEYS = ("analysis-status", "review-status", "finding-count", "analysis-exit-code",
                "report-path", "summary-path", "base-sha", "head-sha", "sarif-path")
 
