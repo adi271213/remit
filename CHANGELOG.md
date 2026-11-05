@@ -1,20 +1,5 @@
 # Changelog
 
-## Unreleased
-
-- **Fixed:** a local action or reusable workflow that can't be parsed now makes
-  the analysis `incomplete` for every job that reaches it. Previously, when a
-  pull request changed only that file, the failure could be dropped and the
-  result reported as `complete`, depending on workflow file order. A change
-  between two unparseable versions of a local file is now examined too.
-- **Fixed:** `uses: $/path` (GitHub's same-repository action reference) is
-  followed like `./path`. Previously it was treated as third-party code: changes
-  inside it went unreported, and switching to it produced a WF009 finding.
-- **Changed:** PR annotations announce an incomplete analysis first, then order
-  findings by rule (WF010, WF011, WF009, WF003, WF004, WF001, WF002, WF005, WF007,
-  WF008), and combine a job's WF001 scopes into one annotation, so the 10-warning
-  limit no longer hides the most serious findings.
-
 ## Version 1 — 2026-11-04
 
 First public release.
@@ -35,15 +20,24 @@ First public release.
 - **Indirect references are followed:** WF010 and WF011 trace pull request
   references through environment variables, `$GITHUB_ENV`, step outputs,
   `needs` job outputs and action inputs, and treat runtime lookups such as
-  `gh pr view` as pull request content.
+  `gh pr view` as pull request content. Besides checkouts, WF010 recognizes
+  clones of the head repository, `gh pr diff | git apply`, archive downloads of
+  the head commit, and artifact downloads with `gh run download` or
+  `github-script`.
+- **Comment commands count as approval only when checked:** an `issue_comment`
+  job is treated as gated (WF011) only when it, or a job it needs, checks who
+  commented. A check of the comment's text alone is WF010, since anyone can
+  type it.
 - **`remit audit`** reports WF010 and WF011 in a repository's current state,
   for a directory or any Git commit, as JSON, Markdown or SARIF, with an
   optional `--fail-on-findings` exit code for scheduled checks.
 - **Local code is followed:** steps inside local composite actions and local
-  reusable workflows count, and a change to them is caught even when no
-  workflow file changed.
+  reusable workflows (`./path` and `$/path`) count, and a change to them is
+  caught even when no workflow file changed. A local file that can't be read or
+  parsed makes the analysis `incomplete` for every job that uses it.
 - **Reports** as pull request annotations on the line that introduced each
-  finding, a Markdown job summary with a review question per rule, JSON, and
+  finding (an incomplete analysis first, then the most serious rules, with a
+  job's WF001 scopes combined so GitHub's 10-annotation limit doesn't hide them), a Markdown job summary with a review question per rule, JSON, and
   SARIF for GitHub code scanning.
 - **GitHub Action** with `advisory` and `require-complete` modes. Findings never
   fail the step; incomplete or failed analysis is reported explicitly.
@@ -53,5 +47,5 @@ First public release.
   replacement refs, and YAML anchors are bounded before parsing.
 - **CLI** `remit` on PyPI, for directories or local Git commits.
 - **Validation:** the test suite on Python 3.11–3.14, an end-to-end Action run
-  with networking disabled, a hosted contract of 17 cases in both modes, a
+  with networking disabled, a hosted contract of 18 cases in both modes, a
   replay of 74 historical public PRs, and a reproducible comparison with zizmor.
