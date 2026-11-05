@@ -45,7 +45,7 @@ First public release.
   executed, the analysis makes no network calls, and the Action ships a
   hash-verified PyYAML bundle. Git reads ignore caller redirection and
   replacement refs, and YAML anchors are bounded before parsing.
-- **CLI** `remit` on PyPI, for directories or local Git commits.
+- **CLI** `remit` (`pip install remit-actions`), for directories or local Git commits.
 - **Validation:** the test suite on Python 3.11–3.14, an end-to-end Action run
   with networking disabled, a hosted contract of 18 cases in both modes, a
   replay of 74 historical public PRs, and a reproducible comparison with zizmor.

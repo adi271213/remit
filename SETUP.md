@@ -108,7 +108,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.13'
-      - run: pip install remit==1
+      - run: pip install remit-actions==1
       - run: remit audit --repo . --format markdown --summary "$GITHUB_STEP_SUMMARY" --fail-on-findings
 ```
 

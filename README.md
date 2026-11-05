@@ -5,8 +5,8 @@
 **Know when a pull request widens your workflows' authority.**
 
 [![CI](https://github.com/adi271213/remit/actions/workflows/ci.yml/badge.svg)](https://github.com/adi271213/remit/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/remit)](https://pypi.org/project/remit/)
-[![Python](https://img.shields.io/pypi/pyversions/remit)](https://pypi.org/project/remit/)
+[![PyPI](https://img.shields.io/pypi/v/remit-actions)](https://pypi.org/project/remit-actions/)
+[![Python](https://img.shields.io/pypi/pyversions/remit-actions)](https://pypi.org/project/remit-actions/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/adi271213/remit/blob/main/LICENSE)
 
 </div>
@@ -180,8 +180,10 @@ default instead, pass it in:
 
 ## Command line
 
+The package is `remit-actions` on PyPI; the command it installs is `remit`.
+
 ```sh
-pip install remit
+pip install remit-actions
 remit scan --repo . --base main --head my-branch --format markdown
 remit scan --dirs path/to/before path/to/after --format sarif --output remit.sarif
 ```

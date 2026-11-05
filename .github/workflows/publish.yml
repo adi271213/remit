@@ -1,6 +1,6 @@
 # Publishes the CLI package to PyPI when a GitHub release is published.
 # One-time setup: add this repository as a trusted publisher for the
-# remit project on PyPI (workflow: publish.yml, environment: pypi).
+# remit-actions project on PyPI (workflow: publish.yml, environment: pypi).
 name: Publish to PyPI
 on:
   release:
@@ -53,7 +53,7 @@ jobs:
     timeout-minutes: 5
     environment:
       name: pypi
-      url: https://pypi.org/p/remit
+      url: https://pypi.org/p/remit-actions
     permissions:
       id-token: write
     steps:
