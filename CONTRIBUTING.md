@@ -10,7 +10,7 @@ python3 -m venv .venv
 pip install -e .
 python scripts/validate.py
 python scripts/offline_smoke.py
-pip install ruff==0.16.9 && ruff check
+pip install ruff==0.17.3 && ruff check
 ```
 
 To run one test file: `python -m unittest discover -s tests -p 'test_contexts.py'`.
@@ -49,6 +49,16 @@ the PR's base commit.
   expected result just to make the replay pass.
 - Changes to the Action controller, template or bundled dependency need the
   offline smoke test, and the hosted contract before release.
+
+## Dependencies
+
+GitHub Actions are pinned to commit SHAs and Dependabot proposes updates weekly.
+The Python tools in `requirements-lint.txt` and `requirements-release.txt` are
+pinned by hash and updated by hand, since Dependabot does not keep their hashes
+in step: download the new wheel (`pip download --no-deps --only-binary=:all:
+<name>==<version>`), compare its SHA-256 with the one PyPI lists for that file,
+and change the version and hash together. PyYAML is vendored; refresh it with
+`scripts/vendor_pyyaml.py` as `vendor/README.md` describes.
 
 ## Releases
 
