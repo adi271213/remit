@@ -19,8 +19,8 @@ data. Any missing, oversized or mismatched file fails the replay. Results go to
 `benchmark-results.json`; the expected summary is in `expected-summary.json`.
 
 The replay passes when every expected WF001/WF003/WF004 finding matches exactly.
-Findings from later rules (WF005, WF007, WF008) are reported separately in the
-summary but are not checked.
+Findings from later rules (WF005 onwards) are reported separately in the summary
+but are not checked.
 
 ## Comparison with zizmor
 
@@ -38,7 +38,14 @@ approximates what code scanning would show as new on the PR.
 | WF004 | 8 | 0 |
 | WF007 | 1 | 0 |
 | WF009 | 11 | 3 |
-| **Total** | **65** | **22** |
+| WF012 | 1 | 1 |
+| **Total** | **64** | **23** |
+
+Remit reports 66 findings on these PRs. zizmor crashed on both sides of one
+(grafana/grafana#89410), so its 2 findings are left out of the table rather than
+counted as missed by zizmor. An earlier version of the script read a crash as
+"no findings" and published 43 of 65 as not surfaced by zizmor; with the crash
+left out it is 41 of 64.
 
 Measured with zizmor 1.32.0. Online audits were skipped, and code scanning
 matches alerts by fingerprint rather than count, so treat these numbers as an
@@ -68,28 +75,42 @@ In each, the last 15 first-parent commits on the default branch that touched
 **Method.** `.github/` and every `action.yml` are checked out on both sides.
 Remit compares them; zizmor (1.32, pedantic, offline), poutine and actionlint
 (1.7.12) run on each side, and only findings that are new at the commit count.
+A tool that exits with an error or prints output that can't be read is recorded
+as failed for that commit, and left out of its counts rather than counted as
+finding nothing.
 [`scripts/field_comparison.py`](../scripts/field_comparison.py) reruns it and
-summarizes ([`field/summary.json`](field/summary.json)).
+summarizes ([`field/summary.json`](field/summary.json)). The numbers below are
+from the current code; no tool failed on these commits.
 
 | | Remit | zizmor | poutine | actionlint |
 |---|---|---|---|---|
-| Commits with new findings | 55 | 82 | 26 | 13 |
-| New findings | 211 | 485 | 53 | 66 |
+| Commits with new findings | 60 | 79 | 26 | 13 |
+| New findings | 233 | 469 | 53 | 66 |
 | Main subject | privilege increases | risky patterns: injection, pinning | supply chain | correctness |
 
-Of Remit's 211 findings, 60 had a related new finding from zizmor or poutine in
-the same file and job (a rule aimed at the same risk); 151 did not. By rule:
+Of Remit's 233 findings, 61 had a related new finding from zizmor or poutine in
+the same file and job (a rule aimed at the same risk); 172 did not. By rule:
 
 | Rule | Findings | Related new finding elsewhere |
 |---|---|---|
 | WF001 token scope increase | 53 | 20 |
-| WF002 default permissions | 8 | 8 |
+| WF002 default permissions | 7 | 6 |
 | WF003 review-sensitive trigger | 13 | 7 |
 | WF004 new secret | 57 | 2 |
 | WF005 runner selection | 31 | 0 |
 | WF007 environment | 13 | 0 |
 | WF009 third-party code with privileges | 35 | 23 |
 | WF010 pull request content | 1 | 0 |
+| WF012 cache in a privileged job | 23 | 3 |
+
+WF012 was added after this comparison was first run (see "Second review" below),
+so it was not tuned on these commits. Its 23 findings include a publishing job
+with `id-token: write`, a release job holding a GitHub App private key, release
+and deploy jobs with write access, and a job turning on `setup-node`'s automatic
+cache by moving to v6; 3 matched a new zizmor `cache-poisoning` finding. Without
+WF012 the totals are 210 findings and 152 with no related finding elsewhere (211
+and 151 in the first published run). zizmor reported 16 fewer `artipacked`
+findings than in the first run, on 5 commits; that difference was not traced.
 
 Every privilege change that zizmor reported as new (excessive permissions,
 dangerous triggers, self-hosted runners, inherited secrets) was also reported by
@@ -147,8 +168,11 @@ vscode, n8n, rust-lang/rust, deno, guava, three.js, hugo) and 448 commits,
 | Correct but not worth a reviewer's time, same sample | ≤ 15% | 15–20%: missed |
 | Time per commit, p95 / max | < 5 s / < 60 s | 1.2 s / 1.6 s |
 
-Remit reported 277 findings; 188 had no related new finding from zizmor or
-poutine. Every new privilege finding from zizmor (excessive permissions,
+Remit reported 277 findings. zizmor crashed on 15 commits (13 in
+microsoft/vscode), which carry 14 of those findings; the first version of the
+script counted a crash as zero findings and published 188 as having no related
+new finding from zizmor or poutine. Leaving those commits out of the comparison,
+176 of the other 263 had none ([`heldout/summary.json`](heldout/summary.json)). Every new privilege finding from zizmor (excessive permissions,
 dangerous triggers, self-hosted runners, inherited secrets) was also reported
 by Remit. poutine newly reported 11 untrusted checkouts that Remit did not;
 by hand, all were reusable workflows called from `pull_request` CI, which gets

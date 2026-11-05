@@ -122,15 +122,16 @@ by a state rule: a job gaining `id-token: write`, a new secret reference, a
 changed environment, or a new action receiving write access.
 
 On [74 historical public PRs](https://github.com/adi271213/remit/blob/main/benchmarks/README.md),
-Remit reported 65 findings. For 43 of them (66%), zizmor 1.32 (pedantic,
-offline) reported no new finding of a related audit in the same workflow and
-job, including all 8 new secret references. The PRs were selected and labelled
+Remit reports 66 findings. zizmor 1.32 (pedantic, offline) crashed on one of
+those PRs; for 41 of the other 64 findings (64%), it reported no new finding of
+a related audit in the same workflow and job, including all 8 new secret
+references. The PRs were selected and labelled
 by this project and the matching is approximate, so read this as an indication,
 not a benchmark. Run zizmor for what is dangerous, and Remit for what got wider.
 
 A [field comparison](https://github.com/adi271213/remit/blob/main/benchmarks/README.md#field-comparison-446-commits-in-30-repositories)
 on 446 recent workflow commits in 30 popular repositories, picked by a rule,
-points the same way: 151 of Remit's 211 findings, including 55 of 57 new secrets
+points the same way: 172 of Remit's 233 findings, including 55 of 57 new secrets
 and every runner and environment change, had no related new finding from zizmor
 or poutine.
 
@@ -195,6 +196,10 @@ default instead, pass it in:
   `$GITHUB_ENV`, step and job outputs, and action inputs within the repository.
   Values computed in other ways (a script that builds a ref from pieces, files
   passed between jobs) are not traced.
+- WF012 knows the caching defaults of the actions it lists, by major version
+  read from the reference. An action pinned to a SHA, or one not listed, is not
+  assumed to cache, and `package.json` is not read to see whether setup-node's
+  automatic cache applies.
 
 </details>
 
