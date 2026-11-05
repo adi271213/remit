@@ -1,0 +1,15 @@
+on: workflow_dispatch
+permissions: {}
+jobs:
+  deploy:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: production
+          - runner: self-hosted
+            target: staging
+    runs-on: ${{ matrix.runner }}
+    environment: ${{ matrix.target }}
+    steps:
+      - run: echo synthetic fixture

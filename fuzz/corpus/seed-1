@@ -1,0 +1,8 @@
+name: Release
+on: push
+permissions: {}
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Example only; never executed by the scanner"
