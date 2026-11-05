@@ -213,14 +213,18 @@ class Semantics(unittest.TestCase):
         self.assertEqual([f["rule"] for f in write_all["findings"]], ["WF002"])
         self.assertIn("contents", write_all["findings"][0]["after"])
 
-    def test_new_or_renamed_inherited_job_is_reported_as_wf002(self):
-        base = BASE.replace("permissions: {}\n", "")
-        for head, job in ((base.replace("test:", "renamed:"), "renamed"),
-                          (base + "  added:\n    runs-on: ubuntu-latest\n    steps: [{run: echo new}]\n", "added")):
-            result = self.scan(head, base)
-            self.assertEqual(result["analysis"], "complete")
-            self.assertEqual([(f["rule"], f["job"], f["before"]) for f in result["findings"]], [("WF002", job, None)])
-        new_workflow = compare(Snapshot("base", {}), Snapshot("head", {WF: base}))
+    def test_new_inherited_job_is_wf002_only_when_the_workflow_did_not_already_use_the_default(self):
+        added = "  added:\n    runs-on: ubuntu-latest\n    steps: [{run: echo new}]\n"
+        inherited = BASE.replace("permissions: {}\n", "")
+        # The workflow's jobs already ran with the default: a new or renamed one changes nothing.
+        for head in (inherited.replace("test:", "renamed:"), inherited + added):
+            result = self.scan(head, inherited)
+            self.assertEqual((result["analysis"], result["findings"]), ("complete", []))
+        # Every job declared permissions: the first one on the default is reported.
+        declared = BASE.replace("permissions: {}\n", "").replace("runs-on:", "permissions: {}\n    runs-on:")
+        result = self.scan(declared + added, declared)
+        self.assertEqual([(f["rule"], f["job"], f["before"]) for f in result["findings"]], [("WF002", "added", None)])
+        new_workflow = compare(Snapshot("base", {}), Snapshot("head", {WF: inherited}))
         self.assertEqual((new_workflow["analysis"], [f["rule"] for f in new_workflow["findings"]]), ("complete", ["WF002"]))
 
     def test_dropping_job_or_workflow_override_is_reported_as_wf002(self):
