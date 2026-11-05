@@ -197,7 +197,9 @@ checkout`, `git fetch` of `refs/pull`, `gh pr diff | git apply`, a `workflow_run
 artifact, a composite action input) and 6 kinds that must not be (a renamed step,
 an action version bump, a new read-only job, a hosted runner upgrade, a
 `pull_request_target` checkout of the base, and a `workflow_run` checkout gated
-to push runs). Up to 150 jobs per kind, 3,718 cases.
+to push runs). Up to 150 jobs per kind, 3,718 cases. (This is the first run, on
+the frozen code; the second review below adds kinds for WF012 and WF013 and
+reruns it with stricter matching.)
 
 Every planted change was reported and no benign one was: 100% for each of the
 25 kinds. The first run was lower for five kinds (77% to 99%); each miss or
@@ -264,4 +266,32 @@ external action. They were quiet in the previous version and are reported again
 on purpose. The message now says that Remit saw no step running the content, and
 asks the reviewer to check the action. The replay of 74 PRs gained one WF012
 finding and nothing else.
+
+**Planted changes, rerun.** The test now counts a detection only when the rule,
+file, workflow and job all match the planted change; before, any finding with
+the right rule and job name counted. It also has new kinds:
+- three that must be reported: a cache restore in a privileged job, `setup-node`
+  v4 to v5 (which turns on its npm cache), and `persist-credentials: false`
+  removed;
+- two that must not be: `persist-credentials: false` added, and a cache in a
+  read-only job.
+
+That makes 22 kinds that must be reported (3,268 cases) and 8 that must not be
+(1,141 cases). Every planted change was reported, and no benign change was.
+
+On the way there were two harness errors, each traced by hand, with Remit
+right both times:
+- One cache restore was "missed" because the job already restored a cache with
+  the same action inside a nested local action. Adding a second one is no
+  change.
+- Eight "false alarms" in read-only jobs were Remit applying its rule as
+  documented. Five were reusable workflows whose callers pass them secrets
+  (`secrets: inherit`), reported at the caller. Three were dedicated release
+  workflows.
+
+The harness now skips both kinds of job for that benign case. Before that, the
+benign case scored 104 of 112.
+
+**Fuzzing** of the new version: Atheris ran 159,000 inputs, and the mutation
+fuzzer 2,000 inputs (two seeds), with no failures.
 
