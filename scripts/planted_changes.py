@@ -334,10 +334,16 @@ def benign_persist_off(doc, name, rng, files):
 
 
 def benign_cache_unprivileged(doc, name, rng, files):
-    """A cache restore in a job with a read-only token and no secrets."""
+    """A cache restore in a job with a read-only token and no secrets.
+
+    Not in a reusable workflow, whose jobs get their callers' secrets, or in a dedicated
+    release workflow: WF012 reports both by design.
+    """
+    from remit.scan import _publishes
     job = doc["jobs"][name]
     p = effective_perms(doc, job)
-    if p is None or privileged(doc, job) or "secrets." in json.dumps(doc.get("env")) \
+    if p is None or "workflow_call" in triggers(doc) or _publishes(doc) or privileged(doc, job) \
+            or "secrets." in json.dumps(doc.get("env")) \
             or CACHING.search(reachable_text(doc, name, files)):
         return None
     head = copy.deepcopy(doc)
