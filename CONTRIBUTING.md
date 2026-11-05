@@ -50,6 +50,21 @@ the PR's base commit.
 - Changes to the Action controller, template or bundled dependency need the
   offline smoke test, and the hosted contract before release.
 
+## Fuzzing
+
+`fuzz/fuzz_remit.py` fuzzes `compare()` and `audit()` with
+[Atheris](https://github.com/google/atheris), seeded from `fuzz/corpus`. CI runs it
+for five minutes on every pull request. To run it locally (Linux, Python 3.13):
+
+```sh
+pip install --require-hashes -r requirements-fuzz.txt
+mkdir -p /tmp/remit-corpus
+python fuzz/fuzz_remit.py -max_total_time=300 /tmp/remit-corpus fuzz/corpus
+```
+
+A failing input is written as `crash-<hash>`; reproduce it with
+`python fuzz/fuzz_remit.py crash-<hash>` and add a test for it.
+
 ## Dependencies
 
 GitHub Actions are pinned to commit SHAs and Dependabot proposes updates weekly.

@@ -1,0 +1,13 @@
+name: Release
+on: [push, pull_request_target]
+permissions: {}
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      id-token: write
+    env:
+      TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+    steps:
+      - run: echo "Example only; never executed by the scanner"

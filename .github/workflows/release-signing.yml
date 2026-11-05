@@ -1,0 +1,34 @@
+# Builds the package for a published GitHub release, signs it with Sigstore (keyless,
+# through this workflow's OIDC identity) and attaches the files and signatures to the
+# release, so anyone can check they came from this repository's workflow.
+name: Sign release
+on:
+  release:
+    types: [published]
+permissions: {}
+concurrency:
+  group: sign-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+jobs:
+  sign:
+    name: Build and sign
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write  # attach the files to the release
+      id-token: write  # Sigstore keyless signing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - name: Build with hash-verified tools
+        run: |
+          python -I -m pip --isolated install --disable-pip-version-check -r requirements-release.txt
+          python -m build --no-isolation
+      - uses: sigstore/gh-action-sigstore-python@790bc6befb9d733738f18d8f895854b453640ec9 # v3.5.0
+        with:
+          inputs: ./dist/*.tar.gz ./dist/*.whl
+          release-signing-artifacts: true

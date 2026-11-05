@@ -1,0 +1,45 @@
+# Reports workflow privilege changes in pull requests (advisory).
+# Checks out the base commit and fetches the PR head as data; nothing from the PR runs.
+# Copy to .github/workflows/ and keep it out of required status checks.
+name: Remit
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+concurrency:
+  group: workflow-privilege-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  privilege-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Checkout trusted base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch proposed head as data
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ && "$EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]; then
+            echo '::error::The PR number or expected head SHA is invalid. No analysis was run.'
+            exit 1
+          fi
+          if ! git fetch --no-tags origin "refs/pull/$PR_NUMBER/head:refs/remotes/origin/privilege-head"; then
+            echo '::error::Could not fetch the public PR head. Inspect the fetch error; no analysis was run.'
+            exit 1
+          fi
+          if [[ "$(git rev-parse refs/remotes/origin/privilege-head)" != "$EXPECTED_HEAD" ]]; then
+            echo '::error::The fetched PR head does not match this event. Retry the latest PR revision after its pull ref updates; keep this equality check.'
+            exit 1
+          fi
+      - name: Report privilege changes
+        # Pin to a reviewed full commit SHA; tags can move.
+        uses: adi271213/remit@9e68b625e41b39f5aafc0aaf8101b4646428a6ce # version 1
+        with:
+          mode: advisory
