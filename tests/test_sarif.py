@@ -67,3 +67,14 @@ class Sarif(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 main(["scan", "--dirs", str(root / "base"), str(root / "head"), "--sarif", str(root / "r.sarif")])
             self.assertEqual(len(json.loads((root / "r.sarif").read_text())["runs"][0]["results"]), 1)
+
+
+class StableFingerprints(unittest.TestCase):
+    def test_wf010_fingerprint_ignores_the_step_that_runs_the_content(self):
+        from remit.sarif import _fingerprint
+        after = {"kind": "checkout", "ref": "x", "triggers": ["pull_request_target"], "privileges": []}
+        plain = {"rule": "WF010", "file": "w.yml", "job": "a", "after": after}
+        with_runner = {**plain, "after": {**after, "runBy": "a script (line 9)"}}
+        moved = {**plain, "after": {**after, "runBy": "a script (line 12)"}}
+        self.assertEqual(_fingerprint(plain), _fingerprint(with_runner))
+        self.assertEqual(_fingerprint(with_runner), _fingerprint(moved))

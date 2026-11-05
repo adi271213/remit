@@ -39,6 +39,8 @@ RELATED = {
     "WF009": {"known-vulnerable-actions", "impostor-commit", "archived-uses",
               "github_action_from_unverified_creator_used", "known_vulnerability_in_build_component"},
     "WF010": {"untrusted_checkout_exec"},
+    "WF012": {"cache-poisoning"},
+    "WF013": {"artipacked"},
     "WF011": {"untrusted_checkout_exec"},
 }
 
@@ -82,11 +84,34 @@ def relative(path, root):
         return str(path)
 
 
+class ToolFailed(Exception):
+    """A tool exited with an error or printed output that could not be read. Its findings for
+    that commit are unknown, which is different from zero."""
+
+
+def _execute(command, ok_codes, cwd=None):
+    run = subprocess.run(command, capture_output=True, text=True, cwd=cwd, check=False)
+    if run.returncode not in ok_codes:
+        raise ToolFailed(f"exit {run.returncode}: {(run.stderr or run.stdout).strip()[-300:]}")
+    return run
+
+
+def _json(text):
+    try:
+        return json.loads(text)
+    except ValueError as error:
+        raise ToolFailed(f"unreadable output: {error}") from None
+
+
 def zizmor(root):
-    run = subprocess.run(["zizmor", "--offline", "--persona", "pedantic", "--no-config", "--format", "json", str(root)],
-                         capture_output=True, text=True, check=False)
+    # 0: no findings; 10-14: findings, by highest severity. Anything else is an error.
+    run = _execute(["zizmor", "--offline", "--persona", "pedantic", "--no-config", "--format", "json", str(root)],
+                   {0, 10, 11, 12, 13, 14})
     found = Counter()
-    for item in json.loads(run.stdout or "[]"):
+    items = _json(run.stdout)
+    if not isinstance(items, list):
+        raise ToolFailed("unexpected output")
+    for item in items:
         location = item["locations"][0]["symbolic"]
         route = location.get("route", {}).get("route", [])
         job = route[1].get("Key") if len(route) > 1 and route[0].get("Key") == "jobs" else None
@@ -95,9 +120,11 @@ def zizmor(root):
 
 
 def poutine(root):
-    run = subprocess.run(["poutine", "analyze_local", ".", "-f", "json", "--quiet", "--disable-version-check"],
-                         capture_output=True, text=True, cwd=root, check=False)
-    data = json.loads(run.stdout[run.stdout.index("{"):]) if "{" in run.stdout else {}
+    run = _execute(["poutine", "analyze_local", ".", "-f", "json", "--quiet", "--disable-version-check"], {0},
+                   cwd=root)
+    if "{" not in run.stdout:
+        raise ToolFailed("no JSON output")
+    data = _json(run.stdout[run.stdout.index("{"):])
     return Counter((item["rule_id"], item.get("meta", {}).get("path"), item.get("meta", {}).get("job"))
                    for item in data.get("findings") or [])
 
@@ -106,9 +133,9 @@ def actionlint(root):
     files = sorted(str(p) for p in (root / ".github/workflows").glob("*.y*ml"))
     if not files:
         return Counter()
-    run = subprocess.run(["actionlint", "-no-color", "-format", "{{json .}}", *files],
-                         capture_output=True, text=True, cwd=root, check=False)
-    return Counter((item["kind"], relative(item["filepath"], root), None) for item in json.loads(run.stdout or "[]"))
+    # 0: no problems; 1: problems found. 2 and 3 are usage and fatal errors.
+    run = _execute(["actionlint", "-no-color", "-format", "{{json .}}", *files], {0, 1}, cwd=root)
+    return Counter((item["kind"], relative(item["filepath"], root), None) for item in _json(run.stdout or "[]"))
 
 
 TOOLS = {"zizmor": zizmor, "poutine": poutine, "actionlint": actionlint}
@@ -118,6 +145,9 @@ def remit(base, head, slug):
     run = subprocess.run([sys.executable, "-m", "remit", "scan", "--dirs", str(base), str(head),
                           "--repository-name", slug], capture_output=True, text=True, check=False,
                          env={**os.environ, "PYTHONPATH": str(ROOT / "src")})
+    # 0: complete analysis; 2: a report whose analysis is incomplete or has errors.
+    if run.returncode not in (0, 2):
+        raise RuntimeError(f"remit exited {run.returncode}: {run.stderr.strip()[-300:]}")
     report = json.loads(run.stdout)
     keys = ("rule", "file", "job", "jobs", "line", "after")
     return {"analysis": report["analysis"],
@@ -145,7 +175,11 @@ def run(args):
                 row["remit"] = remit(work / "base", work / "head", slug)
                 row["remit"]["seconds"] = round(time.monotonic() - start, 2)
                 for name, tool in tools.items():
-                    before, after = tool(work / "base"), tool(work / "head")
+                    try:
+                        before, after = tool(work / "base"), tool(work / "head")
+                    except (ToolFailed, OSError, KeyError, TypeError, IndexError) as error:
+                        row[name] = {"failed": str(error) or type(error).__name__}
+                        continue
                     row[name] = [[*key, count - before.get(key, 0)] for key, count in after.items()
                                  if count > before.get(key, 0)]
             except (RuntimeError, OSError, ValueError) as error:
@@ -157,30 +191,51 @@ def run(args):
             print(slug, commit[:8], row.get("remit", {}).get("analysis", "error"), flush=True)
 
 
+def _ran(row, name):
+    """The tool's new findings on this commit, or None when it failed on either side."""
+    value = row.get(name)
+    return value if isinstance(value, list) else None
+
+
 def summarize(args):
-    rows = [json.loads(line) for line in args.results.read_text().splitlines() if line]
-    rows = [r for r in rows if "remit" in r]
+    every = [json.loads(line) for line in args.results.read_text().splitlines() if line]
+    rows = [r for r in every if "remit" in r]
     tools = [name for name in TOOLS if any(name in r for r in rows)]
     summary = {"commits": len(rows), "repositories": len({r["repository"] for r in rows}),
+               # Commits that could not be fetched, or where Remit itself failed.
+               "commitsNotRun": len(every) - len(rows),
                "remitAnalysis": dict(Counter(r["remit"]["analysis"] for r in rows)),
+               # A failed run is not zero findings: those commits are left out of that tool's counts.
+               "toolRunsFailed": {name: sum(1 for r in rows if name in r and _ran(r, name) is None)
+                                  for name in tools},
                "commitsWithNewFindings": {}, "newFindings": {}}
     for name in ["remit", *tools]:
         if name == "remit":
             counts = [len(r["remit"]["findings"]) for r in rows]
         else:
-            counts = [sum(item[-1] for item in r.get(name, [])) for r in rows]
+            counts = [sum(item[-1] for item in _ran(r, name)) for r in rows if _ran(r, name) is not None]
         summary["commitsWithNewFindings"][name] = sum(1 for c in counts if c)
         summary["newFindings"][name] = sum(counts)
     overlap = defaultdict(Counter)
+    compared = [name for name in tools if name != "actionlint"]
     for r in rows:
-        others = [item for name in tools if name != "actionlint" for item in r.get(name, [])]
+        failed = any(_ran(r, name) is None for name in compared)
+        others = [item for name in compared for item in _ran(r, name) or []]
         for finding in r["remit"]["findings"]:
             jobs = {finding["job"], None} | {entry["job"] for entry in finding.get("jobs") or []}
             related = any(item[0] in RELATED[finding["rule"]] and item[1] == finding["file"]
                           and (finding["job"] is None or item[2] in jobs) for item in others)
             overlap[finding["rule"]]["findings"] += 1
-            overlap[finding["rule"]]["alsoNewInAnotherTool"] += related
+            if related:
+                overlap[finding["rule"]]["alsoNewInAnotherTool"] += 1
+            elif failed:
+                # Another tool failed on this commit, so it cannot count as Remit-only.
+                overlap[finding["rule"]]["anotherToolFailed"] += 1
+            else:
+                overlap[finding["rule"]]["remitOnly"] += 1
     summary["remitByRule"] = {rule: dict(counts) for rule, counts in sorted(overlap.items())}
+    summary["remitOnly"] = sum(counts["remitOnly"] for counts in overlap.values())
+    summary["remitFindingsWhereAnotherToolFailed"] = sum(counts["anotherToolFailed"] for counts in overlap.values())
     seconds = sorted(r["remit"]["seconds"] for r in rows)
     summary["remitSeconds"] = {"median": statistics.median(seconds), "max": seconds[-1]}
     print(json.dumps(summary, indent=2))

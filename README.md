@@ -81,7 +81,7 @@ The template checks out the base commit, fetches the PR head without checking it
 out, and runs the Action pinned to a full commit SHA:
 
 ```yaml
-- uses: adi271213/remit@9e68b625e41b39f5aafc0aaf8101b4646428a6ce # version 1
+- uses: adi271213/remit@03636ee56d6bb87d0fcf2ad33e000c62117854c3 # version 1
   with:
     mode: advisory
 ```
@@ -104,6 +104,8 @@ covers inputs, outputs, code scanning and troubleshooting.
 | WF009 | Third-party code (an action or reusable workflow) newly runs in a job with write scopes, OIDC, secrets or an environment |
 | WF010 | A `pull_request_target`, `workflow_run` or `issue_comment` job newly checks out, fetches or downloads pull request content: the "pwn request" |
 | WF011 | An approval-gated privileged job checks out a pull request reference that can change after approval: time-of-check to time-of-use |
+| WF012 | A job with write scopes, OIDC, secrets or an environment, or in a release workflow, newly restores files from the Actions cache, including caching an action turns on by default in a newer version |
+| WF013 | A checkout stops setting `persist-credentials: false` where the token can write or is a custom token |
 
 Rules follow steps into local composite actions and local reusable workflows
 (`./` and `$/` references), so a change inside `.github/actions/` is caught even
@@ -120,15 +122,16 @@ by a state rule: a job gaining `id-token: write`, a new secret reference, a
 changed environment, or a new action receiving write access.
 
 On [74 historical public PRs](https://github.com/adi271213/remit/blob/main/benchmarks/README.md),
-Remit reported 65 findings. For 43 of them (66%), zizmor 1.32 (pedantic,
-offline) reported no new finding of a related audit in the same workflow and
-job, including all 8 new secret references. The PRs were selected and labelled
+Remit reports 66 findings. zizmor 1.32 (pedantic, offline) crashed on one of
+those PRs; for 41 of the other 64 findings (64%), it reported no new finding of
+a related audit in the same workflow and job, including all 8 new secret
+references. The PRs were selected and labelled
 by this project and the matching is approximate, so read this as an indication,
 not a benchmark. Run zizmor for what is dangerous, and Remit for what got wider.
 
 A [field comparison](https://github.com/adi271213/remit/blob/main/benchmarks/README.md#field-comparison-446-commits-in-30-repositories)
 on 446 recent workflow commits in 30 popular repositories, picked by a rule,
-points the same way: 151 of Remit's 211 findings, including 55 of 57 new secrets
+points the same way: 172 of Remit's 233 findings, including 55 of 57 new secrets
 and every runner and environment change, had no related new finding from zizmor
 or poutine.
 
@@ -193,6 +196,10 @@ default instead, pass it in:
   `$GITHUB_ENV`, step and job outputs, and action inputs within the repository.
   Values computed in other ways (a script that builds a ref from pieces, files
   passed between jobs) are not traced.
+- WF012 knows the caching defaults of the actions it lists, by major version
+  read from the reference. An action pinned to a SHA, or one not listed, is not
+  assumed to cache, and `package.json` is not read to see whether setup-node's
+  automatic cache applies.
 
 </details>
 
