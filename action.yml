@@ -1,5 +1,5 @@
 name: 'Remit: workflow privilege review'
-description: Report supported GitHub Actions privilege changes between exact commits.
+description: 'Flags pull requests that widen what your GitHub Actions workflows can do: token scopes, secrets, OIDC and pwn requests.'
 inputs:
   mode:
     description: 'require-complete exits 2 on incomplete/error; advisory reports these outcomes without failing. Findings alone never fail the step.'
