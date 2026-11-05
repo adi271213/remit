@@ -191,6 +191,20 @@ an existing checkout becomes privileged because the trigger changed, and when th
 pattern appears inside a local action or reusable workflow the job uses. A
 version bump of a download action is quiet.
 
+A checkout that puts only documentation in the workspace is not reported: a
+sparse checkout with `sparse-checkout-cone-mode: false` that lists only Markdown,
+reStructuredText or AsciiDoc files, or files named README, LICENSE, COPYING,
+NOTICE, AUTHORS or CHANGELOG, in a job where no later step runs a script or a
+local action. Each condition matters: in cone mode Git also checks out every file
+at the repository root, wildcards and other files (including `requirements.txt`)
+can be build input, and a later script could restore the whole tree. A
+documentation-only checkout inside a composite action is still reported, since
+the calling job's later steps aren't visible there.
+
+The finding also points out that, even with no secrets and a read-only token,
+pull request code in these workflows shares the default branch's Actions cache,
+which later trusted runs may restore.
+
 A pull request reference is followed to where it is used through:
 
 - environment variables at workflow, job and step level (`${{ env.X }}`, or
