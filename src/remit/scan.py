@@ -8,7 +8,7 @@ import yaml
 from .sources import MAX_FILE, Oversized, Snapshot
 from .contexts import compare_contexts
 from .conditions import workflow_run_excludes_pull_requests
-from .flows import PRIVILEGED_TRIGGERS, LocalCode, gate
+from .flows import PRIVILEGED_TRIGGERS, Code, Control, LocalCode, gate
 from .expressions import IDENTIFIER
 from .yaml_limits import MAX_ALIASES, validate_graph
 
@@ -366,6 +366,26 @@ def _uses_default(document: dict, defaults) -> bool:
     return False
 
 
+def _safe_triggers(document: dict) -> set[str]:
+    try:
+        return _triggers(document)
+    except ValueError:
+        return set()
+
+
+def _publishes(document: dict) -> bool:
+    """True for a dedicated release workflow: it runs on releases or pushed tags, and
+    otherwise only when started by hand. A CI workflow that also runs on tags is not one."""
+    found = _safe_triggers(document)
+    on = document.get("on")
+    push = on.get("push") if isinstance(on, dict) else None
+    tags_only = isinstance(push, dict) and bool(push.get("tags")) and not push.get("branches") \
+        and not push.get("branches-ignore")
+    if "push" in found and not tags_only:
+        return False
+    return bool(found) and found <= {"release", "push", "workflow_dispatch"} and ("release" in found or tags_only)
+
+
 def _pin_advice(triggers) -> str:
     """How to check out the approved commit, for the event the job runs on."""
     if "pull_request_target" in triggers:
@@ -398,6 +418,21 @@ def audit(snapshot: Snapshot, defaults=None, *, repository: str | None = None) -
         report["analysis"] = "error" if any(d["kind"] == "error" for d in report["diagnostics"]) else "incomplete"
     report["review"] = "suggested" if report["findings"] else "none"
     return report
+
+
+def _execution_text(runner: str | None) -> str:
+    """What WF010 can say about the content being run, given the step seen running it, if any."""
+    if runner is None:
+        return ("Remit saw no later script or local action that runs it: check whether the actions "
+                "that follow execute or interpret these files, and if they do, move that work to the "
+                "pull_request trigger.")
+    if runner.startswith("the same script"):
+        seen = runner[0].upper() + runner[1:] + " also runs other commands"
+    else:
+        seen = runner[0].upper() + runner[1:] + " runs after it"
+    return (f"{seen}, which can execute pull request files with those permissions and write to the "
+            "Actions cache of the branch the workflow runs on, which later trusted runs may restore. "
+            "Run pull request code under the pull_request trigger instead.")
 
 
 def _merge_shared(findings: list) -> list:
@@ -650,10 +685,62 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, repository: str | 
             unreadable_permissions = "head" not in values
             granted = _privileges(new_job, new_value, refs["head"][0])
 
-            # WF009: third-party code newly running where it can use the job's privileges.
-            old_targets = {code.target for code in flows["base"][0]}
+            controls = {side: [c for c in flows[side][0] if isinstance(c, Control)] for side in flows}
+            third_party = {side: [c for c in flows[side][0] if isinstance(c, Code)] for side in flows}
+
+            # WF012: a job holding write access, OIDC, secrets or an environment, or one in a
+            # release workflow, newly restores files from the Actions cache, which other runs
+            # of the branch can write.
+            stakes = list(granted)
+            if not stakes and _publishes(after):
+                stakes = ["release" if "release" in _safe_triggers(after) else "tag pushes"]
+            old_caches = {c.key for c in controls["base"] if c.kind == "cache"}
             reported = set()
-            for code in sorted(flows["head"][0], key=lambda c: c.target):
+            for control in controls["head"]:
+                if stakes and control.kind == "cache" and control.key not in old_caches \
+                        and control.key not in reported:
+                    reported.add(control.key)
+                    via = f" through {control.file}" if control.file != path else ""
+                    finding("WF012", control.file, name, None, {"cache": control.detail, "privileges": stakes},
+                            f"Job {name} now restores files from the Actions cache ({control.detail}){via} "
+                            + (f"while it has {'; '.join(granted)}" if granted else
+                               f"in a workflow that runs on {stakes[0]}")
+                            + ". Any run that can write this branch's cache, including "
+                            "pull request code in a pull_request_target, workflow_run or issue_comment job, can "
+                            "plant files this job then uses. Don't restore caches in jobs that publish, deploy "
+                            "or hold secrets.", control.line, workflow=path)
+
+            # WF013: a checkout drops persist-credentials: false where the token is worth taking.
+            token_matters = new_value is None or any(level == "write" for level in (new_value or {}).values())
+            off = {c.key.rsplit("|", 1)[0] for c in controls["base"]
+                   if c.kind == "credentials" and c.key.endswith("|off")}
+            still_off = {c.key.rsplit("|", 1)[0] for c in controls["head"]
+                         if c.kind == "credentials" and c.key.endswith("|off")}
+            reported = set()
+            for control in controls["head"]:
+                place = control.key.rsplit("|", 1)[0]
+                custom = control.detail.endswith("with a custom token")
+                if control.kind != "credentials" or not control.key.endswith("|persists") \
+                        or place not in off or place in still_off or place in reported \
+                        or not (token_matters or custom):
+                    continue
+                reported.add(place)
+                uses = control.detail.removesuffix(" with a custom token")
+                major = uses.rsplit("@v", 1)[1].split(".")[0] if "@v" in uses else ""
+                where = ("in a file outside the workspace, where later steps can still read it"
+                         if major.isdigit() and int(major) >= 6 else
+                         "in the repository's .git/config, where later steps can read it and a workspace "
+                         "upload can publish it")
+                token = "the custom token" if custom else "the job's token"
+                finding("WF013", control.file, name, {"persist-credentials": False}, {"persist-credentials": True},
+                        f"Job {name}'s checkout ({uses}) no longer sets persist-credentials: false, so {token} "
+                        f"is kept {where}. Restore persist-credentials: false unless a later step pushes "
+                        "with it.", control.line, workflow=path)
+
+            # WF009: third-party code newly running where it can use the job's privileges.
+            old_targets = {code.target for code in third_party["base"]}
+            reported = set()
+            for code in sorted(third_party["head"], key=lambda c: c.target):
                 if granted and code.target not in old_targets and code.target not in reported:
                     reported.add(code.target)
                     via = f" through {code.file}" if code.file != path else ""
@@ -707,13 +794,12 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, repository: str | 
                             f"before checkout (time-of-check to time-of-use). {_pin_advice(head_triggers)}",
                             fetch.line, workflow=path)
                 else:
+                    if fetch.runner:
+                        after_value["runBy"] = fetch.runner
                     finding("WF010", fetch.file, name, None, after_value,
                             f"Job {name} runs on {trigger_text} and {'' if _audit else 'now '}brings in pull "
-                            "request content "
-                            f"({fetch.ref}){via} where it can use {capability_text}. Code from the pull request "
-                            "can act with those privileges, and even without them it shares the default branch's "
-                            "Actions cache, which later trusted runs may restore. Run pull request code under the "
-                            "pull_request trigger instead.", fetch.line, workflow=path)
+                            f"request content ({fetch.ref}){via}. The job has {capability_text}. "
+                            + _execution_text(fetch.runner), fetch.line, workflow=path)
     report["findings"] = _merge_shared(report["findings"])
     if report["inheritedComparisons"]:
         report["assumptions"].append(

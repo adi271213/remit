@@ -21,6 +21,10 @@ RULES = {
                                                           "pull request content."),
     "WF011": ("mutable-ref-after-approval", "An approval-gated privileged job checks out a pull request reference "
                                             "that can change after approval (TOCTOU)."),
+    "WF012": ("cache-in-privileged-job", "A job with write scopes, OIDC, secrets or an environment newly restores "
+                                         "files from the Actions cache."),
+    "WF013": ("checkout-credentials-kept", "A checkout stops setting persist-credentials: false where the token "
+                                           "can write or is a custom token."),
     "WF009": ("third-party-code-in-privileged-job", "Third-party code newly runs in a job with write scopes, OIDC, "
                                                     "secrets or an environment."),
 }
@@ -28,7 +32,12 @@ RULES = {
 
 def _fingerprint(finding):
     # Stable across line moves, so code scanning keeps tracking the same alert.
-    identity = json.dumps([finding["rule"], finding["file"], finding["job"], finding["after"]], sort_keys=True)
+    after = finding["after"]
+    if isinstance(after, dict) and "runBy" in after:
+        # runBy names a later step and its line; it describes the finding rather than
+        # identifying it, so an alert keeps its fingerprint when it is added or moves.
+        after = {key: value for key, value in after.items() if key != "runBy"}
+    identity = json.dumps([finding["rule"], finding["file"], finding["job"], after], sort_keys=True)
     return hashlib.sha256(identity.encode()).hexdigest()
 
 

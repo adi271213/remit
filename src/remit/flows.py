@@ -66,6 +66,17 @@ class Code:
 
 
 @dataclass(frozen=True)
+class Control:
+    """A step whose settings decide what the job trusts or exposes: a cache it restores, or a
+    checkout that leaves the token in place for later steps. Carried in the codes list."""
+    kind: str    # cache | credentials
+    key: str     # what is compared between base and head
+    detail: str  # how it is shown
+    file: str
+    line: int | None
+
+
+@dataclass(frozen=True)
 class Fetch:
     """A step that brings pull request content into the job."""
     kind: str    # checkout | script | artifact
@@ -73,6 +84,9 @@ class Fetch:
     mutable: bool
     file: str
     line: int | None
+    # A later step in the same steps list that can execute what was brought in: a script or
+    # a local action, as "a script (line 40)". None when no such step was seen.
+    runner: str | None = field(default=None, compare=False)
 
 
 def third_party_target(value: str, repository: str | None = None) -> str | None:
@@ -289,11 +303,50 @@ def taint_of(value, ctx: Context, shell: bool = False) -> Taint | None:
     return _combine(found)
 
 
-def _env_taints(env, ctx: Context) -> dict:
+# Expressions whose value never comes from the pull request in the privileged triggers.
+TRUSTED_EXPRESSIONS = frozenset({"github.sha", "github.ref", "github.ref_name", "github.base_ref",
+                                 "github.event.repository.default_branch",
+                                 "github.event.pull_request.base.sha", "github.event.pull_request.base.ref"})
+
+
+def known_value(value, shell: bool = False) -> bool:
+    """True when value is a fixed literal, or built only from trusted expressions.
+
+    A value that refers to anything else (another variable, an input, a command) is unknown:
+    replacing a pull request reference with it does not show the reference is gone.
+    """
+    if isinstance(value, (bool, int, float)):
+        return True
+    if not isinstance(value, str):
+        return False
+    if any(" ".join(e.split()).casefold() not in TRUSTED_EXPRESSIONS for e in expressions(value)):
+        return False
+    rest = without_expressions(value)
+    if "${{" in rest:
+        return False
+    # In a script, $X, ${X}, $(...) and `...` are expanded by the shell.
+    return not (shell and ("$" in rest or "`" in rest))
+
+
+def _apply_env(target: dict, env, ctx: Context, shell: bool = False):
+    """Set target's variables from env: a pull request value taints the name, a known value
+    replaces (clears) an earlier taint, and an unknown value leaves it as it was."""
     if not isinstance(env, dict):
-        return {}
-    return {name: taint for name, value in env.items()
-            if isinstance(name, str) and (taint := taint_of(value, ctx)) is not None}
+        return
+    for name, value in env.items():
+        if not isinstance(name, str):
+            continue
+        taint = taint_of(value, ctx, shell=shell)
+        if taint is not None:
+            target[name] = taint
+        elif known_value(value, shell=shell):
+            target.pop(name, None)
+
+
+def _env_taints(env, ctx: Context) -> dict:
+    found = {}
+    _apply_env(found, env, ctx)
+    return found
 
 
 def _shown(text: str, taint: Taint) -> str:
@@ -362,27 +415,136 @@ def documents_only(step: dict) -> bool:
     return bool(lines) and all(DOCUMENT.fullmatch(line) for line in lines)
 
 
-def runs_workspace_code(step) -> bool:
-    """A later step that can execute what is in the workspace: any script, or a local action."""
-    if not isinstance(step, dict):
-        return True
+# Actions known to read workspace files without executing them. Any other action may
+# run what is in the workspace (a README can be a script's input, a config file or a
+# template), so its behaviour is treated as unknown.
+INERT_ACTIONS = frozenset({"actions/checkout", "actions/upload-artifact"})
+
+
+def inert(step) -> bool:
+    """A later step that cannot execute or interpret what is in the workspace."""
+    if not isinstance(step, dict) or "run" in step:
+        return False
     uses = step.get("uses")
-    return "run" in step or (isinstance(uses, str) and uses.startswith(LOCAL_PREFIXES))
+    if not isinstance(uses, str) or uses.startswith(LOCAL_PREFIXES) or "@" not in uses:
+        return False
+    return uses.split("@", 1)[0].strip().lower() in INERT_ACTIONS
 
 
-def _record_writes(step: dict, ctx: Context):
-    """Outputs and environment variables a step sets for later steps."""
+def _runner(steps, nodes) -> str | None:
+    """The first step that can execute workspace files: a script or a local action."""
+    for step, node in zip(steps, nodes):
+        if not isinstance(step, dict):
+            continue
+        uses = step.get("uses") if isinstance(step.get("uses"), str) else ""
+        if "run" in step:
+            line = _key(node, "run")[0]
+            return "a script" + (f" (line {line})" if line else "")
+        if uses.startswith(LOCAL_PREFIXES):
+            line = _key(node, "uses")[0]
+            return f"local action {uses}" + (f" (line {line})" if line else "")
+    return None
+
+
+def _major(uses: str) -> int | None:
+    """The major version in an action reference such as owner/name@v5.1.0, or None (SHA, branch)."""
+    ref = uses.split("@", 1)[1] if "@" in uses else ""
+    match = re.fullmatch(r"v?(\d+)(?:\.\d+){0,2}", ref.strip())
+    return int(match.group(1)) if match else None
+
+
+def _off(value) -> bool:
+    return value is False or (isinstance(value, str) and value.strip().lower() == "false")
+
+
+def _on(value) -> bool:
+    return value is True or (isinstance(value, str) and value.strip().lower() == "true")
+
+
+def cache_use(step: dict) -> str | None:
+    """How a step restores files from the Actions cache, if it does.
+
+    Defaults that depend on the action's version are applied: setup-go caches unless told not
+    to from v4, setup-node caches npm from v5 (when package.json names npm as its
+    packageManager). A version that can't be read from the reference is not assumed to cache.
+    """
+    uses = step.get("uses") if isinstance(step.get("uses"), str) else ""
+    name = uses.split("@", 1)[0].strip().lower()
+    options = step.get("with") if isinstance(step.get("with"), dict) else {}
+    major = _major(uses)
+    if name in ("actions/cache", "actions/cache/restore"):
+        return name
+    if name in ("actions/setup-node", "actions/setup-python", "actions/setup-java"):
+        cache = options.get("cache")
+        if isinstance(cache, str) and cache.strip():
+            return f"{name} cache: {cache.strip()}"
+        if name == "actions/setup-node" and major is not None and major >= 5 \
+                and not _off(options.get("package-manager-cache")):
+            return f"{name} v{major} automatic npm cache, used when package.json names npm as its packageManager"
+        return None
+    if name == "actions/setup-go":
+        cache = options.get("cache")
+        if _on(cache) or (cache is None and major is not None and major >= 4):
+            return f"{name} cache" + ("" if cache is not None else f" (on by default in v{major})")
+        return None
+    if name == "actions/setup-dotnet" and _on(options.get("cache")):
+        return f"{name} cache"
+    if name == "ruby/setup-ruby" and _on(options.get("bundler-cache")):
+        return f"{name} bundler-cache"
+    if name == "astral-sh/setup-uv" and _on(options.get("enable-cache")):
+        return f"{name} enable-cache"
+    if name == "swatinem/rust-cache":
+        return name
+    if name == "gradle/actions/setup-gradle" and not _on(options.get("cache-disabled")):
+        return f"{name} cache"
+    return None
+
+
+def credential_checkout(step: dict) -> tuple[str, bool, int | None] | None:
+    """(checkout key, persists credentials, major version) for an actions/checkout step.
+
+    From v2 the token is kept for later Git commands unless persist-credentials is false; a
+    value that is an expression may be true.
+    """
+    uses = step.get("uses") if isinstance(step.get("uses"), str) else ""
+    if uses.split("@", 1)[0].strip().lower() != "actions/checkout":
+        return None
+    options = step.get("with") if isinstance(step.get("with"), dict) else {}
+    major = _major(uses)
+    key = " ".join(" ".join(str(options.get(name) or "").split()) for name in ("repository", "path"))
+    persists = not _off(options.get("persist-credentials")) and (major is None or major >= 2)
+    return key, persists, major
+
+
+
+# Commands that move or show Git data without executing files from the working tree.
+_INERT_COMMANDS = {"git", "gh", "cd", "echo", "printf", "set", "export", "true", "pwd", "ls", "cat"}
+
+
+def _runs_more(run) -> bool:
+    """True when a script that fetches pull request content also runs another kind of command."""
+    if not isinstance(run, str):
+        return False
+    for command in re.split(r"\n|&&|\|\||;", run):
+        words = command.strip().split()
+        if words and not words[0].startswith("#") and words[0] not in _INERT_COMMANDS:
+            return True
+    return False
+
+
+def _record_writes(step: dict, ctx: Context, written: dict):
+    """Outputs a step sets (into ctx) and its $GITHUB_ENV writes (into written, a copy of the
+    environment later steps will see)."""
     step_id = step.get("id") if isinstance(step.get("id"), str) else None
     run = step.get("run")
     if isinstance(run, str):
         for line in run.splitlines():
             for name, value, target in file_writes(line):
-                taint = taint_of(value, ctx, shell=True)
-                if taint is None:
-                    continue
                 if target == "GITHUB_ENV":
-                    ctx.env[name] = taint
-                elif step_id:
+                    _apply_env(written, {name: value}, ctx, shell=True)
+                    continue
+                taint = taint_of(value, ctx, shell=True)
+                if taint is not None and step_id:
                     ctx.outputs[(step_id.casefold(), name.casefold())] = taint
     uses = step.get("uses") if isinstance(step.get("uses"), str) else ""
     options = step.get("with") if isinstance(step.get("with"), dict) else {}
@@ -478,7 +640,7 @@ class LocalCode:
                 if isinstance(needed, str):
                     for output, taint in job_outputs.get(needed.casefold(), {}).items():
                         ctx.needs[(needed.casefold(), output)] = taint
-            ctx.env.update(_env_taints(job.get("env"), ctx))
+            _apply_env(ctx.env, job.get("env"), ctx.copy())
             known = len(self.issues)
             codes, fetches = self.job(file, job, _key(jobs_node, name)[1], depth, seen, ctx)
             outputs = job.get("outputs") if isinstance(job.get("outputs"), dict) else {}
@@ -510,26 +672,40 @@ class LocalCode:
             if not isinstance(step, dict):
                 continue
             step_ctx = ctx.copy()
-            step_ctx.env.update(_env_taints(step.get("env"), ctx))
+            _apply_env(step_ctx.env, step.get("env"), ctx)
             found = fetch_of(step, step_ctx)
             # Only a job's own steps are all visible: inside a composite action, the calling
             # job's later steps could still run what was checked out.
             if found and job_steps and found[0] == "checkout" and documents_only(step) \
-                    and not any(runs_workspace_code(later) for later in steps[index + 1:]):
+                    and all(inert(later) for later in steps[index + 1:]):
                 found = None
             if found:
                 line = _key(node, "uses")[0] or _key(node, "run")[0]
-                fetches.append(Fetch(found[0], found[1], found[2], file, line))
+                runner = _runner(steps[index + 1:], nodes[index + 1:])
+                if found[0] == "script" and _runs_more(step.get("run")):
+                    runner = "the same script" + (f" (line {line})" if line else "")
+                fetches.append(Fetch(found[0], found[1], found[2], file, line, runner))
             if isinstance(step.get("uses"), str):
-                self._uses(step, step["uses"], file, _key(node, "uses")[0], codes, fetches, depth, seen, False,
+                uses_line = _key(node, "uses")[0]
+                cache = cache_use(step)
+                if cache:
+                    codes.append(Control("cache", cache.split()[0].casefold(), cache, file, uses_line))
+                checkout = credential_checkout(step)
+                if checkout:
+                    key, persists, major = checkout
+                    token = (step.get("with") or {}).get("token") if isinstance(step.get("with"), dict) else None
+                    shown = f"{step['uses'].strip()}" + (" with a custom token" if isinstance(token, str) else "")
+                    codes.append(Control("credentials", f"{file}|{key}|{'persists' if persists else 'off'}",
+                                         shown, file, uses_line))
+                self._uses(step, step["uses"], file, uses_line, codes, fetches, depth, seen, False,
                            step_ctx)
             mount = checkout_mount(step, self.repository)
             if mount:
                 ctx.mounts[mount[0]] = mount[1]
             # Outputs and $GITHUB_ENV writes are visible to later steps.
-            _record_writes(step, step_ctx)
+            # A step's own env: applies to that step only; its $GITHUB_ENV writes reach later steps.
+            _record_writes(step, step_ctx, ctx.env)
             ctx.outputs.update(step_ctx.outputs)
-            ctx.env.update({k: v for k, v in step_ctx.env.items() if k not in (step.get("env") or {})})
 
     def _uses(self, owner, value, file, line, codes, fetches, depth, seen, job_level, ctx):
         if not value.startswith(LOCAL_PREFIXES):

@@ -250,6 +250,107 @@ PWN = {
 }
 
 
+CACHING = re.compile(r"actions/cache|setup-(node|python|java|go|dotnet|ruby|uv|gradle)|rust-cache", re.I)
+RESTORE = {"uses": "actions/cache/restore@v4", "with": {"path": "~/.planted", "key": "planted-${{ runner.os }}"}}
+
+
+def reachable_text(doc, name, files):
+    """The job, plus the local composite actions it reaches, as text."""
+    parts, pending, seen = [json.dumps(doc["jobs"][name])], [json.dumps(doc["jobs"][name])], set()
+    while pending:
+        for path in re.findall(r"\./([\w./-]+)", pending.pop()):
+            path = path.strip("/")
+            for candidate in (f"{path}/action.yml", f"{path}/action.yaml"):
+                if candidate in files and candidate not in seen:
+                    seen.add(candidate)
+                    parts.append(files[candidate])
+                    pending.append(files[candidate])
+    return "\n".join(parts)
+
+
+def op_cache(doc, name, rng, files):
+    # A cache restored in a local action the job uses is already there; a second is no change.
+    if CACHING.search(reachable_text(doc, name, files)):
+        return None
+    base = copy.deepcopy(doc)
+    if not make_privileged(base, base["jobs"][name]):
+        return None
+    head = copy.deepcopy(base)
+    insert_step(head["jobs"][name], copy.deepcopy(RESTORE), rng)
+    return base, head, {}
+
+
+def op_setup_node_v5(doc, name, rng, files):
+    """A version bump that turns on setup-node's automatic npm cache."""
+    if CACHING.search(reachable_text(doc, name, files)):
+        return None
+    base = copy.deepcopy(doc)
+    if not make_privileged(base, base["jobs"][name]):
+        return None
+    insert_step(base["jobs"][name], {"uses": "actions/setup-node@v4", "with": {"node-version": 24}}, rng)
+    head = copy.deepcopy(base)
+    for step in head["jobs"][name]["steps"]:
+        if step.get("uses") == "actions/setup-node@v4":
+            step["uses"] = "actions/setup-node@v5"
+    return base, head, {}
+
+
+def _writable(doc, name):
+    """doc with the job's token able to write contents, or None when that can't be set."""
+    base = copy.deepcopy(doc)
+    p = effective_perms(base, base["jobs"][name])
+    if p is None and ("permissions" in base["jobs"][name] or "permissions" in base):
+        return None
+    base["jobs"][name]["permissions"] = {**(p or {}), "contents": "write"}
+    return base
+
+
+def op_persist_credentials(doc, name, rng, files):
+    base = _writable(doc, name)
+    if base is None:
+        return None
+    step = {"uses": "actions/checkout@v4", "with": {"path": "planted", "persist-credentials": False}}
+    insert_step(base["jobs"][name], step, rng)
+    head = copy.deepcopy(base)
+    for item in head["jobs"][name]["steps"]:
+        if isinstance(item.get("with"), dict) and item["with"].get("path") == "planted":
+            del item["with"]["persist-credentials"]
+    return base, head, {}
+
+
+def benign_persist_off(doc, name, rng, files):
+    """Hardening: a checkout gains persist-credentials: false."""
+    head = copy.deepcopy(doc)
+    checkouts = [s for s in head["jobs"][name]["steps"] if str(s.get("uses", "")).startswith("actions/checkout@")
+                 and not (isinstance(s.get("with"), dict) and "persist-credentials" in s["with"])]
+    if not checkouts:
+        return None
+    step = rng.choice(checkouts)
+    if step.get("with") is not None and not isinstance(step["with"], dict):
+        return None
+    step.setdefault("with", {})
+    step["with"] = {**(step["with"] or {}), "persist-credentials": False}
+    return doc, head, {}
+
+
+def benign_cache_unprivileged(doc, name, rng, files):
+    """A cache restore in a job with a read-only token and no secrets.
+
+    Not in a reusable workflow, whose jobs get their callers' secrets, or in a dedicated
+    release workflow: WF012 reports both by design.
+    """
+    from remit.scan import _publishes
+    job = doc["jobs"][name]
+    p = effective_perms(doc, job)
+    if p is None or "workflow_call" in triggers(doc) or _publishes(doc) or privileged(doc, job) \
+            or "secrets." in json.dumps(doc.get("env")) \
+            or CACHING.search(reachable_text(doc, name, files)):
+        return None
+    head = copy.deepcopy(doc)
+    insert_step(head["jobs"][name], copy.deepcopy(RESTORE), rng)
+    return doc, head, {}
+
+
 def benign_rename(doc, name, rng, files):
     head = copy.deepcopy(doc)
     rng.choice(head["jobs"][name]["steps"])["name"] = "Renamed by the planted-change test"
@@ -286,6 +387,8 @@ def benign_ubuntu(doc, name, rng, files):
 
 BENIGN = {
     "benign: renamed step": (benign_rename, "none"),
+    "benign: persist-credentials: false added": (benign_persist_off, "none"),
+    "benign: cache in a read-only job": (benign_cache_unprivileged, "none"),
     "benign: action version bump": (benign_bump, "none"),
     "benign: new read-only job": (benign_readonly_job, "none"),
     "benign: ubuntu-22.04 -> 24.04": (benign_ubuntu, "none"),
@@ -312,6 +415,9 @@ OPERATORS = {
     "new secret": (op_secret, {"WF004"}), "self-hosted runner": (op_self_hosted, {"WF005"}),
     "new environment": (op_environment, {"WF007"}), "third-party action, privileged job": (op_action, {"WF009"}),
     "third-party action inside local composite": (op_action_in_composite, {"WF009"}),
+    "cache restore, privileged job": (op_cache, {"WF012"}),
+    "setup-node v4 -> v5 (default cache), privileged job": (op_setup_node_v5, {"WF012"}),
+    "persist-credentials: false removed": (op_persist_credentials, {"WF013"}),
     **{k: (v, {"WF010", "WF011"}) for k, v in PWN.items()},
 }
 
@@ -355,6 +461,19 @@ def run_case(repo, path, made):
                    Snapshot("h", workflows(head_files), head_files.get), repository=repo)
 
 
+def matches(finding, expected, path, name, extra):
+    """A detection counts only for the planted change itself: the expected rule, on the
+    workflow or an action file the operator planted, for the planted workflow and job."""
+    if finding["rule"] not in expected or finding.get("file") not in {path, *extra}:
+        return False
+    places = {(entry.get("workflow"), entry.get("job")) for entry in finding.get("jobs") or []}
+    # "workflow" is set only when the finding sits in another file (an action or reusable workflow).
+    places.add((finding.get("workflow", finding.get("file")), finding.get("job")))
+    if finding["rule"] == "WF003":  # a trigger belongs to the workflow, not a job
+        return any(workflow == path for workflow, _ in places)
+    return (path, name) in places
+
+
 def run(args):
     corpus.update(json.loads(args.corpus.read_text()))
     sites = []
@@ -391,8 +510,7 @@ def run(args):
                 report = run_case(repo, path, made)
                 found = [(f["rule"], f["job"], [j["job"] for j in f.get("jobs") or []]) for f in report["findings"]]
                 if isinstance(expected, set):
-                    hit = any(rule in expected and (rule == "WF003" or job == name or name in jobs)
-                              for rule, job, jobs in found)
+                    hit = any(matches(f, expected, path, name, made[2]) for f in report["findings"])
                     outcome = "detected" if hit else "missed"
                 elif expected == "none":
                     outcome = "quiet" if not found else "false alarm"

@@ -19,8 +19,8 @@ data. Any missing, oversized or mismatched file fails the replay. Results go to
 `benchmark-results.json`; the expected summary is in `expected-summary.json`.
 
 The replay passes when every expected WF001/WF003/WF004 finding matches exactly.
-Findings from later rules (WF005, WF007, WF008) are reported separately in the
-summary but are not checked.
+Findings from later rules (WF005 onwards) are reported separately in the summary
+but are not checked.
 
 ## Comparison with zizmor
 
@@ -38,7 +38,14 @@ approximates what code scanning would show as new on the PR.
 | WF004 | 8 | 0 |
 | WF007 | 1 | 0 |
 | WF009 | 11 | 3 |
-| **Total** | **65** | **22** |
+| WF012 | 1 | 1 |
+| **Total** | **64** | **23** |
+
+Remit reports 66 findings on these PRs. zizmor crashed on both sides of one
+(grafana/grafana#89410), so its 2 findings are left out of the table rather than
+counted as missed by zizmor. An earlier version of the script read a crash as
+"no findings" and published 43 of 65 as not surfaced by zizmor; with the crash
+left out it is 41 of 64.
 
 Measured with zizmor 1.32.0. Online audits were skipped, and code scanning
 matches alerts by fingerprint rather than count, so treat these numbers as an
@@ -68,28 +75,42 @@ In each, the last 15 first-parent commits on the default branch that touched
 **Method.** `.github/` and every `action.yml` are checked out on both sides.
 Remit compares them; zizmor (1.32, pedantic, offline), poutine and actionlint
 (1.7.12) run on each side, and only findings that are new at the commit count.
+A tool that exits with an error or prints output that can't be read is recorded
+as failed for that commit, and left out of its counts rather than counted as
+finding nothing.
 [`scripts/field_comparison.py`](../scripts/field_comparison.py) reruns it and
-summarizes ([`field/summary.json`](field/summary.json)).
+summarizes ([`field/summary.json`](field/summary.json)). The numbers below are
+from the current code; no tool failed on these commits.
 
 | | Remit | zizmor | poutine | actionlint |
 |---|---|---|---|---|
-| Commits with new findings | 55 | 82 | 26 | 13 |
-| New findings | 211 | 485 | 53 | 66 |
+| Commits with new findings | 60 | 79 | 26 | 13 |
+| New findings | 233 | 469 | 53 | 66 |
 | Main subject | privilege increases | risky patterns: injection, pinning | supply chain | correctness |
 
-Of Remit's 211 findings, 60 had a related new finding from zizmor or poutine in
-the same file and job (a rule aimed at the same risk); 151 did not. By rule:
+Of Remit's 233 findings, 61 had a related new finding from zizmor or poutine in
+the same file and job (a rule aimed at the same risk); 172 did not. By rule:
 
 | Rule | Findings | Related new finding elsewhere |
 |---|---|---|
 | WF001 token scope increase | 53 | 20 |
-| WF002 default permissions | 8 | 8 |
+| WF002 default permissions | 7 | 6 |
 | WF003 review-sensitive trigger | 13 | 7 |
 | WF004 new secret | 57 | 2 |
 | WF005 runner selection | 31 | 0 |
 | WF007 environment | 13 | 0 |
 | WF009 third-party code with privileges | 35 | 23 |
 | WF010 pull request content | 1 | 0 |
+| WF012 cache in a privileged job | 23 | 3 |
+
+WF012 was added after this comparison was first run (see "Second review" below),
+so it was not tuned on these commits. Its 23 findings include a publishing job
+with `id-token: write`, a release job holding a GitHub App private key, release
+and deploy jobs with write access, and a job turning on `setup-node`'s automatic
+cache by moving to v6; 3 matched a new zizmor `cache-poisoning` finding. Without
+WF012 the totals are 210 findings and 152 with no related finding elsewhere (211
+and 151 in the first published run). zizmor reported 16 fewer `artipacked`
+findings than in the first run, on 5 commits; that difference was not traced.
 
 Every privilege change that zizmor reported as new (excessive permissions,
 dangerous triggers, self-hosted runners, inherited secrets) was also reported by
@@ -147,8 +168,11 @@ vscode, n8n, rust-lang/rust, deno, guava, three.js, hugo) and 448 commits,
 | Correct but not worth a reviewer's time, same sample | ≤ 15% | 15–20%: missed |
 | Time per commit, p95 / max | < 5 s / < 60 s | 1.2 s / 1.6 s |
 
-Remit reported 277 findings; 188 had no related new finding from zizmor or
-poutine. Every new privilege finding from zizmor (excessive permissions,
+Remit reported 277 findings. zizmor crashed on 15 commits (13 in
+microsoft/vscode), which carry 14 of those findings; the first version of the
+script counted a crash as zero findings and published 188 as having no related
+new finding from zizmor or poutine. Leaving those commits out of the comparison,
+176 of the other 263 had none ([`heldout/summary.json`](heldout/summary.json)). Every new privilege finding from zizmor (excessive permissions,
 dangerous triggers, self-hosted runners, inherited secrets) was also reported
 by Remit. poutine newly reported 11 untrusted checkouts that Remit did not;
 by hand, all were reusable workflows called from `pull_request` CI, which gets
@@ -173,7 +197,9 @@ checkout`, `git fetch` of `refs/pull`, `gh pr diff | git apply`, a `workflow_run
 artifact, a composite action input) and 6 kinds that must not be (a renamed step,
 an action version bump, a new read-only job, a hosted runner upgrade, a
 `pull_request_target` checkout of the base, and a `workflow_run` checkout gated
-to push runs). Up to 150 jobs per kind, 3,718 cases.
+to push runs). Up to 150 jobs per kind, 3,718 cases. (This is the first run, on
+the frozen code; the second review below adds kinds for WF012 and WF013 and
+reruns it with stricter matching.)
 
 Every planted change was reported and no benign one was: 100% for each of the
 25 kinds. The first run was lower for five kinds (77% to 99%); each miss or
@@ -208,3 +234,64 @@ with a valid code and a JSON report.
 **Coverage** under the test suite: 91% of lines and branches in `src/remit`.
 It showed one unused method (removed) and `merge_base`, used by the Action to
 compare from where a pull request branched, without a direct test (added).
+
+## Second review (November 2026)
+
+An outside review found six problems:
+
+- a comparison across types could hide a pwn request;
+- documentation-only checkouts were trusted too far;
+- overwritten variables kept their pull request taint;
+- WF010's message claimed more than Remit saw;
+- the benchmark scripts read a crashed tool as "no findings";
+- there were no checks for cache use and `persist-credentials`.
+
+All six are fixed (changelog, Unreleased). The benchmark fixes changed published
+numbers, and those are corrected above.
+
+**Does the new version make anything worse?** The previous `main` (`168056f`) and
+the new version ran side by side on all 894 field and held-out commits, both as
+a pull request scan and as an audit of the head:
+
+| | Field (446 commits) | Held-out (448 commits) |
+|---|---|---|
+| Findings that disappeared | 0 | 0 |
+| Crashes, or analysis no longer complete | 0 | 0 |
+| New scan findings | 23, all WF012 | 21, all WF012 |
+| New audit findings | 36 WF010, all in deepseek-ai/deepseek-harness | 0 |
+| Time per commit, p95 (old / new) | 2.17 s / 2.22 s | 1.01 s / 1.05 s |
+
+The deepseek findings are the documentation-only checkouts followed by an
+external action. They were quiet in the previous version and are reported again
+on purpose. The message now says that Remit saw no step running the content, and
+asks the reviewer to check the action. The replay of 74 PRs gained one WF012
+finding and nothing else.
+
+**Planted changes, rerun.** The test now counts a detection only when the rule,
+file, workflow and job all match the planted change; before, any finding with
+the right rule and job name counted. It also has new kinds:
+- three that must be reported: a cache restore in a privileged job, `setup-node`
+  v4 to v5 (which turns on its npm cache), and `persist-credentials: false`
+  removed;
+- two that must not be: `persist-credentials: false` added, and a cache in a
+  read-only job.
+
+That makes 22 kinds that must be reported (3,268 cases) and 8 that must not be
+(1,141 cases). Every planted change was reported, and no benign change was.
+
+On the way there were two harness errors, each traced by hand, with Remit
+right both times:
+- One cache restore was "missed" because the job already restored a cache with
+  the same action inside a nested local action. Adding a second one is no
+  change.
+- Eight "false alarms" in read-only jobs were Remit applying its rule as
+  documented. Five were reusable workflows whose callers pass them secrets
+  (`secrets: inherit`), reported at the caller. Three were dedicated release
+  workflows.
+
+The harness now skips both kinds of job for that benign case. Before that, the
+benign case scored 104 of 112.
+
+**Fuzzing** of the new version: Atheris ran 159,000 inputs, and the mutation
+fuzzer 2,000 inputs (two seeds), with no failures.
+

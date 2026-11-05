@@ -117,6 +117,17 @@ def _truth(value):
     return bool(value) if not isinstance(value, float) else value != 0
 
 
+def _kind(value):
+    """The GitHub type of a value: null, boolean, number or string (bool is not a number)."""
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    return "string" if isinstance(value, str) else "other"
+
+
 def _evaluate(node, facts):
     kind = node[0]
     if kind == "lit":
@@ -140,7 +151,12 @@ def _evaluate(node, facts):
         operator, left, right = node[1], _evaluate(node[2], facts), _evaluate(node[3], facts)
         if left is UNKNOWN or right is UNKNOWN or operator not in ("==", "!="):
             return UNKNOWN
-        if isinstance(left, str) and isinstance(right, str):
+        if _kind(left) != _kind(right):
+            # GitHub converts mismatched operands to numbers ('1' == 1, null == '' and
+            # '0x1' == 1 are all true). Rather than reproduce those rules, a comparison
+            # across types is unknown, so it can never rule a run out.
+            return UNKNOWN
+        if isinstance(left, str):
             equal = left.casefold() == right.casefold()
         else:
             equal = left == right
