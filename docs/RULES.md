@@ -18,6 +18,10 @@ For each job, the effective `GITHUB_TOKEN` permissions are the job's
 (`none` → `read` → `write`) is one finding. `read-all` and `write-all` are expanded
 to every known scope. A new `id-token: write` is described as an OIDC token request.
 
+A new job's `read` scopes are not reported: they are narrower than any default
+token, so declaring them is hardening, not an increase. Its `write` scopes and
+`id-token: write` are reported, and so is a `read` scope added to an existing job.
+
 Supported scopes: `actions`, `artifact-metadata`, `attestations`, `checks`,
 `code-quality`, `contents`, `copilot-requests`, `deployments`, `discussions`,
 `id-token`, `issues`, `models`, `packages`, `pages`, `pull-requests`,
@@ -100,6 +104,10 @@ labels between rows is reported even when the overall label set is unchanged.
 An unknown label isn't assumed to be self-hosted; it may be a larger hosted
 runner. The finding asks the reviewer to confirm.
 
+A change from a selection that couldn't be resolved (an expression) to
+GitHub-hosted labels only is quiet and complete: whatever ran before, nothing
+self-hosted or custom is introduced.
+
 ## WF007: environment change
 
 Reported when a job's `environment` name is added, removed or changed. Names are
@@ -143,6 +151,15 @@ are not reported. Third-party code reached through a local composite action or a
 local reusable workflow counts too, and the finding is placed on that file's
 `uses:` line (see [Local code](#local-code)). A job that inherits unknown default
 permissions counts only its secrets and environment.
+
+A reference to the repository itself by full name
+(`owner/repo/.github/workflows/build.yml@main`) is its own code, not third-party
+code, when the repository name is known: the Action passes it, and the CLI takes
+`--repository-name owner/repo`. A self-reference by full commit SHA is still
+reported, because GitHub also resolves SHAs of commits that exist only in a fork.
+
+When one change in a shared local action or reusable workflow reaches several
+jobs, it is reported once, with every job listed in `jobs`.
 
 ## WF010: pull request content in a privileged workflow
 
@@ -229,15 +246,35 @@ Steps are followed into code the repository itself provides:
 GitHub's same-repository form, `uses: $/path`, is followed the same way and is
 never reported as third-party code.
 
-References are followed up to four levels deep, cycles are cut, and paths that
-leave the repository are refused. A workflow whose own file didn't change is
+A `uses: ./path` step reads from the workspace, so earlier `actions/checkout` steps
+in the job are taken into account when their inputs are literal:
+
+- this repository checked out into a folder (`path: tools`) makes
+  `./tools/.github/actions/x` this repository's `.github/actions/x`;
+- another repository (`repository: owner/other`) checked out into a folder, or at
+  the workspace root, makes the actions under it third-party code from that
+  repository (WF009).
+
+References are followed up to ten levels deep, GitHub's own limit, cycles are
+cut, and paths that leave the repository are refused. A workflow whose own file didn't change is
 still examined when a local file it reaches did. A local reference that can't be
 read or parsed makes the analysis `incomplete` for every job that reaches it. Actions and reusable workflows from other
 repositories are not fetched.
 
 ## Matrices and expressions
 
-Expressions are never evaluated. A `runs-on`, runner group or `environment` value
+Expressions are not evaluated, with one narrow exception: a `workflow_run` job's
+`if:` (or that of a job it needs) is checked for whether it rules out runs caused
+by pull requests. If the condition is definitely false whenever
+`github.event.workflow_run.event` is a pull request, review, comment, merge queue
+or `workflow_run` event, as with `github.event.workflow_run.event == 'push'`, the
+job can't receive pull request content through that trigger and WF010/WF011 stay
+quiet for it. Anything that can't be decided, such as a function call or another
+property, counts as possibly true, so the check only ever errs toward reporting.
+A `workflow_run` `branches:` filter is not enough on its own: a fork's pull request
+can come from a branch with the same name.
+
+A `runs-on`, runner group or `environment` value
 of exactly `${{ matrix.<field> }}` is resolved against the job's matrix if:
 
 - the matrix is static (no `${{ }}` anywhere in it);

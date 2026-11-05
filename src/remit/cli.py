@@ -5,7 +5,7 @@ import sys
 
 from .report import markdown
 from .sarif import sarif
-from .scan import audit, compare, error_report, permissions
+from .scan import REPOSITORY_NAME, audit, compare, error_report, permissions
 from .sources import InputError, directory, git_snapshot
 
 
@@ -15,6 +15,8 @@ def _outputs(parser):
     parser.add_argument("--output", type=Path)
     parser.add_argument("--summary", type=Path, help="Explicit path to append a Markdown job summary")
     parser.add_argument("--sarif", type=Path, help="Also write a SARIF 2.1.0 report to this path")
+    parser.add_argument("--repository-name", metavar="OWNER/REPO",
+                        help="The analysed repository, so references to it by full name count as its own code")
 
 
 def _defaults(value):
@@ -62,16 +64,18 @@ def main(argv=None) -> int:
 
     try:
         defaults = _defaults(args.default_permissions)
+        if args.repository_name is not None and not REPOSITORY_NAME.fullmatch(args.repository_name):
+            raise InputError("Repository name must be owner/repo.")
         if args.command == "audit":
             snapshot = directory(args.dir) if args.dir else git_snapshot(args.repo, args.ref or "HEAD")
-            result = audit(snapshot, defaults)
+            result = audit(snapshot, defaults, repository=args.repository_name)
         else:
             if args.dirs:
                 base, head = (directory(path) for path in args.dirs)
             else:
                 base = git_snapshot(args.repo, args.base)
                 head = git_snapshot(args.repo, args.head)
-            result = compare(base, head, defaults)
+            result = compare(base, head, defaults, repository=args.repository_name)
     except (InputError, OSError) as exc:
         # Do not echo filesystem errors, source text, credentials, or git stderr.
         reason = str(exc) if isinstance(exc, InputError) else "Could not read comparison inputs."

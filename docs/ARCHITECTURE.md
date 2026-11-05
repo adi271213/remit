@@ -42,7 +42,7 @@ the given repository. It:
 - applies a 15-second timeout to each Git call.
 
 Local actions outside `.github/workflows/` are read on demand through the same
-reader: at most 100 extra files and 4 MiB per snapshot, regular files only, and
+reader: at most 100 extra files and 16 MiB per snapshot, regular files only, and
 no path that leaves the repository or passes through a symbolic link.
 
 Git error output is never copied into the report.
@@ -60,8 +60,11 @@ alias its full expanded cost and rejects the document if it exceeds 200,000
 nodes, 4 MiB of scalar text or depth 50, or contains a cycle. This stops "billion
 laughs" style inputs before any rule walks the data.
 
-Input limits: 200 workflow files and 4 MiB per snapshot, 256 KiB per file,
-strict UTF-8 (a BOM is allowed).
+Input limits: 400 workflow files and 16 MiB per snapshot, 1 MiB per file,
+strict UTF-8 (a BOM is allowed). A workflow file over 1 MiB is not read: it is
+represented by a fingerprint of its content (its Git object ID, or a SHA-256 for
+directories, which read at most 64 MiB), so an unchanged one compares equal and a
+changed one makes that file `incomplete` without failing the rest.
 
 Errors from PyYAML include source text, so they're replaced with a generic
 message in the report.
@@ -73,7 +76,9 @@ schemaVersion        report format version, independent of the package version
 base, head           commit SHAs, or directory content hashes for --dirs
 analysis             complete | incomplete | error
 review               none | suggested
-findings[]           rule, file, job, line, before, after, message
+findings[]           rule, file, job, line, before, after, message; workflow when the finding
+                     sits in a local action or reusable workflow; jobs[] ({workflow, job})
+                     when one change there reaches several jobs
 diagnostics[]        file, side, job, kind (incomplete | error), reason
 renames[]            exact-content renames that were skipped
 examinedFiles[]      files that changed and were compared
