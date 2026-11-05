@@ -72,7 +72,7 @@ The template checks out the base commit, fetches the PR head without checking it
 out, and runs the Action pinned to a full commit SHA:
 
 ```yaml
-- uses: adi271213/remit@1f884d35611d52ad79d8b2217af3b747434a108b # version 1
+- uses: adi271213/remit@b12773a3e9210febce227c67a61969611f22ff04 # version 1
   with:
     mode: advisory
 ```
@@ -111,7 +111,7 @@ by a state rule: a job gaining `id-token: write`, a new secret reference, a
 changed environment, or a new action receiving write access.
 
 On [74 historical public PRs](https://github.com/adi271213/remit/blob/main/benchmarks/README.md),
-Remit reported 66 findings. For 44 of them (67%), zizmor 1.32 (pedantic,
+Remit reported 65 findings. For 43 of them (66%), zizmor 1.32 (pedantic,
 offline) reported no new finding of a related audit in the same workflow and
 job, including all 8 new secret references. The PRs were selected and labelled
 by this project and the matching is approximate, so read this as an indication,

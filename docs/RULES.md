@@ -41,15 +41,17 @@ supplied:
 
 - **To the default.** A new job, or a job that used to declare permissions,
   now has no `permissions` block at job or workflow level. The default could be
-  broader than before, so the finding asks for an explicit block. `before` is
+  broader than before, so the finding asks for an explicit block. A new job in a
+  workflow whose jobs already ran with the default changes nothing and is quiet;
+  the first such job in a workflow, or a new workflow, is reported. `before` is
   the old explicit grants (`none` if it granted nothing, empty for a new job);
   `after` is `repository default`. Switching from `write-all` is quiet, since
   nothing can exceed it.
 - **From the default.** A job that used the default now declares permissions.
-  The narrowest default GitHub allows is `contents: read` and `packages: read`,
-  so declared levels at or below that can't be an increase and stay quiet. That
-  covers the usual hardening change. Anything above it is reported as "may
-  exceed the default", and the comparison is listed in `assumptions`.
+  Declaring read access is hardening, so only `write` scopes above the
+  narrowest default GitHub allows (`contents: read`, `packages: read`) are
+  reported, as "may exceed the default", and the comparison is listed in
+  `assumptions`.
 
 Supplying `default-permissions` replaces WF002 with ordinary WF001 comparisons.
 
