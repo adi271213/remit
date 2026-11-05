@@ -32,7 +32,12 @@ RULES = {
 
 def _fingerprint(finding):
     # Stable across line moves, so code scanning keeps tracking the same alert.
-    identity = json.dumps([finding["rule"], finding["file"], finding["job"], finding["after"]], sort_keys=True)
+    after = finding["after"]
+    if isinstance(after, dict) and "runBy" in after:
+        # runBy names a later step and its line; it describes the finding rather than
+        # identifying it, so an alert keeps its fingerprint when it is added or moves.
+        after = {key: value for key, value in after.items() if key != "runBy"}
+    identity = json.dumps([finding["rule"], finding["file"], finding["job"], after], sort_keys=True)
     return hashlib.sha256(identity.encode()).hexdigest()
 
 
