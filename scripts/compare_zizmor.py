@@ -32,6 +32,8 @@ RELATED = {
     "WF009": {"unpinned-uses", "archived-uses", "known-vulnerable-actions", "impostor-commit", "ref-confusion"},
     "WF010": {"dangerous-triggers", "artipacked", "cache-poisoning"},
     "WF011": {"dangerous-triggers"},
+    "WF012": {"cache-poisoning"},
+    "WF013": {"artipacked"},
 }
 
 

@@ -228,6 +228,20 @@ class WorkflowRunConditions(unittest.TestCase):
                 self.assertIs(excludes_pull_request_runs(condition), expected)
         self.assertFalse(workflow_run_excludes_pull_requests({"jobs": {"a": {"needs": ["a"]}}}, "a"))
 
+    def test_comparisons_across_types_are_unknown(self):
+        # GitHub converts mismatched operands to numbers, so each right-hand side
+        # below is true and the job runs for every pull request.
+        push = "github.event.workflow_run.event == 'push'"
+        for evasion in ("1 == '1'", "null == ''", "'0x1' == 1", "true == 1", "false == '0'",
+                        "github.event.workflow_run.event == 0", "!(1 != '1')"):
+            with self.subTest(evasion=evasion):
+                self.assertFalse(excludes_pull_request_runs(f"{push} || {evasion}"))
+        # Same-type comparisons are still decided.
+        for condition in (f"{push} || 1 == 2", f"{push} || 'a' == 'b'", f"{push} || true == false",
+                          f"{push} || null != null", f"{push} && 1 == 1"):
+            with self.subTest(condition=condition):
+                self.assertTrue(excludes_pull_request_runs(condition))
+
 
 class OwnRepositoryReferences(unittest.TestCase):
     CALLED = "on: workflow_call\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - run: make\n"
@@ -291,21 +305,35 @@ class DeclaringPermissions(unittest.TestCase):
 
 class DocumentOnlyCheckouts(unittest.TestCase):
     """deepseek-harness pattern: a pull_request_target job checks out only the README of the
-    pull request head and runs a trusted external action. Nothing from the pull request runs."""
+    pull request head. That is quiet only when no later step can execute or interpret it."""
     SPARSE = ("      - uses: actions/checkout@v4\n        with:\n"
               "          ref: ${{ github.event.pull_request.head.sha }}\n"
               "          sparse-checkout: {files}\n{cone}")
     CONE_OFF = "          sparse-checkout-cone-mode: false\n"
+    UPLOAD = "      - uses: actions/upload-artifact@v4\n        with:\n          path: README.md\n"
 
-    def wf010(self, files="README.md", cone=CONE_OFF, after="      - uses: owner/check@v1\n", action=None):
+    def wf010(self, files="README.md", cone=CONE_OFF, after=UPLOAD, action=None):
         workflow = ("on: pull_request_target\npermissions: {contents: read}\njobs:\n  check:\n"
                     "    runs-on: ubuntu-latest\n    steps:\n" + self.SPARSE.format(files=files, cone=cone) + after)
         files_ = {WF: workflow, **({ACTION: action} if action else {})}
         return [f for f in check(files_)["findings"] if f["rule"] in ("WF010", "WF011")]
 
-    def test_documentation_only_checkout_followed_by_actions_is_quiet(self):
+    def test_documentation_only_checkout_followed_by_inert_steps_is_quiet(self):
         self.assertEqual(self.wf010(), [])
+        self.assertEqual(self.wf010(after=""), [])
         self.assertEqual(self.wf010(files="|\n            README.md\n            docs/guide.md\n"), [])
+
+    def test_an_external_action_may_execute_documentation_so_it_is_reported(self):
+        # The action's behaviour is unknown: it may render, template or run what it reads,
+        # and here it is also handed the pull request's head commit.
+        for after in ("      - uses: owner/check@v1\n",
+                      "      - uses: owner/check@v1\n        with:\n"
+                      "          sha: ${{ github.event.pull_request.head.sha }}\n",
+                      "      - uses: actions/github-script@v7\n        with:\n"
+                      "          script: require('./README.md')\n",
+                      self.UPLOAD + "      - uses: docker://alpine:3\n"):
+            with self.subTest(after=after):
+                self.assertEqual(len(self.wf010(after=after)), 1)
 
     def test_cone_mode_includes_every_root_file_so_it_is_reported(self):
         self.assertEqual(len(self.wf010(cone="")), 1)
@@ -331,3 +359,170 @@ class DocumentOnlyCheckouts(unittest.TestCase):
                     "      - uses: ./.github/actions/setup\n      - run: make\n")
         found = [f["rule"] for f in check({WF: workflow, ACTION: composite})["findings"]]
         self.assertIn("WF010", found)
+
+
+class EnvironmentOverrides(unittest.TestCase):
+    """A pull request value stops counting once the variable is replaced with a known value;
+    a replacement that can't be resolved keeps it."""
+    HEAD = "${{ github.event.pull_request.head.sha }}"
+
+    def wf010(self, job_env="", steps=""):
+        workflow = ("on: pull_request_target\npermissions: {contents: read}\n"
+                    f"env:\n  REF: {self.HEAD}\njobs:\n  build:\n    runs-on: ubuntu-latest\n{job_env}"
+                    "    steps:\n" + steps)
+        return [f for f in check({WF: workflow})["findings"] if f["rule"] in ("WF010", "WF011")]
+
+    CHECKOUT = "      - uses: actions/checkout@v4\n        with:\n          ref: ${{ env.REF }}\n"
+
+    def test_the_workflow_value_is_reported(self):
+        self.assertEqual(len(self.wf010(steps=self.CHECKOUT)), 1)
+
+    def test_a_known_value_at_job_or_step_level_clears_it(self):
+        for job_env, step_env in (("    env:\n      REF: main\n", ""),
+                                  ("    env:\n      REF: ${{ github.sha }}\n", ""),
+                                  ("", "        env:\n          REF: main\n")):
+            with self.subTest(job_env=job_env, step_env=step_env):
+                self.assertEqual(self.wf010(job_env, self.CHECKOUT + step_env), [])
+
+    def test_a_step_level_override_applies_to_that_step_only(self):
+        steps = ("      - run: echo hi\n        env:\n          REF: main\n" + self.CHECKOUT)
+        self.assertEqual(len(self.wf010(steps=steps)), 1)
+
+    def test_github_env_writes_clear_or_set_for_later_steps(self):
+        cleared = '      - run: echo "REF=main" >> "$GITHUB_ENV"\n' + self.CHECKOUT
+        self.assertEqual(self.wf010(steps=cleared), [])
+        workflow_free = ("on: pull_request_target\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n"
+                         f'      - run: echo "REF={self.HEAD}" >> "$GITHUB_ENV"\n' + self.CHECKOUT)
+        self.assertEqual(len([f for f in check({WF: workflow_free})["findings"] if f["rule"] == "WF010"]), 1)
+
+    def test_an_unresolved_replacement_keeps_the_value(self):
+        for job_env, steps in (("    env:\n      REF: ${{ inputs.ref }}\n", self.CHECKOUT),
+                               ("    env:\n      REF: ${{ vars.BRANCH }}-${{ env.REF }}\n", self.CHECKOUT),
+                               ("", '      - run: echo "REF=$(cat ref.txt)" >> "$GITHUB_ENV"\n' + self.CHECKOUT),
+                               ("", '      - run: echo "REF=$OTHER" >> "$GITHUB_ENV"\n' + self.CHECKOUT)):
+            with self.subTest(job_env=job_env, steps=steps):
+                self.assertEqual(len(self.wf010(job_env, steps)), 1)
+
+
+class PullRequestContentWording(unittest.TestCase):
+    """WF010 states what was seen: execution and cache writes only when a step runs the content."""
+
+    def message(self, steps, permissions="{contents: write}"):
+        workflow = (f"on: pull_request_target\npermissions: {permissions}\njobs:\n  a:\n"
+                    "    runs-on: ubuntu-latest\n    steps:\n" + steps)
+        found = [f for f in check({WF: workflow})["findings"] if f["rule"] == "WF010"]
+        self.assertEqual(len(found), 1)
+        return found[0]
+
+    CHECKOUT = ("      - uses: actions/checkout@v4\n        with:\n"
+                "          ref: ${{ github.event.pull_request.head.sha }}\n")
+
+    def test_a_later_script_supports_the_execution_claim(self):
+        found = self.message(self.CHECKOUT + "      - run: npm test\n")
+        self.assertIn("A script (line 10) runs after it, which can execute", found["message"])
+        self.assertIn("Actions cache", found["message"])
+        self.assertEqual(found["after"]["runBy"], "a script (line 10)")
+
+    def test_without_a_runner_it_claims_only_the_import(self):
+        found = self.message(self.CHECKOUT + "      - uses: owner/lint@v1\n", "{contents: read}")
+        self.assertIn("brings in pull request content", found["message"])
+        self.assertIn("The job has a read-only token.", found["message"])
+        for claim in ("can execute", "Actions cache", "act with"):
+            self.assertNotIn(claim, found["message"])
+        self.assertNotIn("runBy", found["after"])
+
+    def test_a_fetching_script_counts_only_when_it_runs_something_else(self):
+        number = "${{ github.event.pull_request.number }}"
+        self.assertIn("The same script", self.message(f"      - run: gh pr checkout {number} && make\n")["message"])
+        quiet = self.message(f"      - run: gh pr checkout {number} && git log -1\n")["message"]
+        self.assertNotIn("can execute", quiet)
+
+
+class CacheInPrivilegedJobs(unittest.TestCase):
+    """WF012: a job with publishing power starts restoring the Actions cache."""
+    JOB = ("on: push\njobs:\n  release:\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n"
+           "{extra}    steps:\n      - uses: actions/checkout@v4\n{setup}      - run: npm publish\n"
+           "        env:\n          NODE_AUTH_TOKEN: ${{{{ secrets.NPM_TOKEN }}}}\n")
+
+    def found(self, base_setup, head_setup, extra="      id-token: write\n", files=None):
+        base = {WF: self.JOB.format(extra=extra, setup=base_setup), **(files or {})}
+        head = {WF: self.JOB.format(extra=extra, setup=head_setup), **(files or {})}
+        return [f for f in scan(base, head)["findings"] if f["rule"] == "WF012"]
+
+    NODE = "      - uses: actions/setup-node@{version}\n        with:\n          node-version: 24\n{more}"
+
+    def test_a_new_cache_restore_is_reported(self):
+        for setup in (self.NODE.format(version="v4", more="          cache: pnpm\n"),
+                      "      - uses: actions/cache/restore@v4\n        with:\n          path: x\n          key: k\n",
+                      "      - uses: actions/setup-go@v5\n",
+                      "      - uses: ruby/setup-ruby@v1\n        with:\n          bundler-cache: true\n"):
+            with self.subTest(setup=setup):
+                found = self.found("", setup)
+                self.assertEqual(len(found), 1)
+                self.assertIn("NPM_TOKEN", found[0]["message"])
+
+    def test_version_defaults_are_applied(self):
+        # setup-node v5 turns on npm caching by default; v4 did not.
+        found = self.found(self.NODE.format(version="v4", more=""), self.NODE.format(version="v5", more=""))
+        self.assertEqual(len(found), 1)
+        self.assertIn("v5 automatic npm cache", found[0]["message"])
+        off = "          package-manager-cache: false\n"
+        self.assertEqual(self.found(self.NODE.format(version="v4", more=""),
+                                    self.NODE.format(version="v5", more=off)), [])
+        # setup-go v3 does not cache unless asked.
+        self.assertEqual(self.found("", "      - uses: actions/setup-go@v3\n"), [])
+
+    def test_unchanged_or_unprivileged_caches_are_quiet(self):
+        cached = self.NODE.format(version="v4", more="          cache: npm\n")
+        self.assertEqual(self.found(cached, self.NODE.format(version="v4", more="          cache: pnpm\n")), [])
+        unprivileged = ("on: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    permissions: {{contents: read}}\n"
+                        "    steps:\n      - uses: actions/checkout@v4\n" + "{setup}" + "      - run: npm test\n")
+        report = scan({WF: unprivileged.format(setup="")}, {WF: unprivileged.format(setup=cached)})
+        self.assertEqual([f for f in report["findings"] if f["rule"] == "WF012"], [])
+
+    def test_a_cache_in_a_local_composite_action_is_reported_there(self):
+        action = ("runs:\n  using: composite\n  steps:\n    - uses: actions/setup-node@v4\n      with:\n"
+                  "        cache: pnpm\n")
+        plain = "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n"
+        setup = "      - uses: ./.github/actions/setup\n"
+        base = {WF: self.JOB.format(extra="      id-token: write\n", setup=setup), ACTION: plain}
+        head = {WF: self.JOB.format(extra="      id-token: write\n", setup=setup), ACTION: action}
+        found = [f for f in scan(base, head)["findings"] if f["rule"] == "WF012"]
+        self.assertEqual([(f["file"], f["workflow"]) for f in found], [(ACTION, WF)])
+
+
+class CheckoutCredentials(unittest.TestCase):
+    """WF013: a checkout stops setting persist-credentials: false."""
+    JOB = ("on: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    permissions: {perms}\n    steps:\n"
+           "      - uses: actions/checkout@{version}\n{options}      - run: make\n")
+    OFF = "        with:\n          persist-credentials: false\n"
+
+    def found(self, base_options, head_options, perms="{contents: write}", version="v4", head_version=None):
+        base = self.JOB.format(perms=perms, version=version, options=base_options)
+        head = self.JOB.format(perms=perms, version=head_version or version, options=head_options)
+        return [f for f in scan({WF: base}, {WF: head})["findings"] if f["rule"] == "WF013"]
+
+    def test_removing_the_safeguard_is_reported(self):
+        for head in ("", "        with:\n          persist-credentials: true\n",
+                     "        with:\n          persist-credentials: ${{ inputs.persist }}\n"):
+            with self.subTest(head=head):
+                found = self.found(self.OFF, head)
+                self.assertEqual(len(found), 1)
+                self.assertIn(".git/config", found[0]["message"])
+
+    def test_checkout_v6_keeps_credentials_outside_the_workspace(self):
+        found = self.found(self.OFF, "", version="v6")
+        self.assertIn("outside the workspace", found[0]["message"])
+
+    def test_a_read_only_token_is_not_worth_reporting_unless_a_custom_token_is_used(self):
+        self.assertEqual(self.found(self.OFF, "", perms="{contents: read}"), [])
+        custom = "        with:\n          token: ${{ secrets.BOT_PAT }}\n"
+        found = self.found(self.OFF + "          token: ${{ secrets.BOT_PAT }}\n", custom, perms="{contents: read}")
+        self.assertEqual(len(found), 1)
+        self.assertIn("custom token", found[0]["message"])
+
+    def test_new_checkouts_and_unchanged_safeguards_are_quiet(self):
+        self.assertEqual(self.found("", ""), [])
+        self.assertEqual(self.found(self.OFF, self.OFF, head_version="v5"), [])
+        # Checkout v1 did not keep the token.
+        self.assertEqual(self.found(self.OFF, "", version="v1"), [])
