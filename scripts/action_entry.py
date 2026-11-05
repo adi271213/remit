@@ -40,6 +40,8 @@ def entry():
         # merged to the base branch since then don't appear reversed as findings.
         base = merge_base(repository, base, head) or base
     args = ["scan", "--repo", repository, "--base", base, "--head", head]
+    if (name := os.environ.get("GITHUB_REPOSITORY")) and re.fullmatch(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+", name):
+        args += ["--repository-name", name]
     if defaults := os.environ.get("PRIVILEGE_DEFAULTS"):
         args += ["--default-permissions", defaults]
     if output := os.environ.get("PRIVILEGE_REPORT"):

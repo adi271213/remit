@@ -218,6 +218,7 @@ def _compare_associations(before, after, unresolved):
 def compare_contexts(before, after):
     findings, diagnostics, assumptions = [], [], []
     unresolved = {}
+    hosted_only_head = False
     for field, rule, resolve in (("runs-on", "WF005", _runner), ("environment", "WF007", _environment)):
         try:
             old, old_unknown = resolve(before)
@@ -232,6 +233,13 @@ def compare_contexts(before, after):
                 old_selector = old_selector.get("name")
             if isinstance(new_selector, dict):
                 new_selector = new_selector.get("name")
+        if field == "runs-on" and old_unknown and not new_unknown and not new["groups"] \
+                and set(new["labels"]) <= HOSTED_LABELS:
+            # Whatever the old selection was, the job now runs only on GitHub-hosted
+            # runners: nothing self-hosted or custom is introduced, and pairing a hosted
+            # runner with an environment (WF008) exposes no new infrastructure.
+            hosted_only_head = True
+            continue
         if old_unknown or new_unknown:
             if old_selector == new_selector and _matrix(before) == _matrix(after):
                 assumptions.append(f"Unchanged unresolved {field} selector/matrix compares symbolically; "
@@ -269,7 +277,7 @@ def compare_contexts(before, after):
             message = ("Environment selection changed. Review scoped configuration and approval requirements; "
                        "secret availability and protection policies are not verified.")
         findings.append({"rule": rule, "before": old, "after": new, "message": message})
-    if not findings and not diagnostics:
+    if not findings and not diagnostics and not hosted_only_head:
         try:
             changes, issues = _compare_associations(before, after, unresolved)
             findings.extend(changes)
