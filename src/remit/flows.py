@@ -2,6 +2,7 @@
 
 Steps are followed into local composite actions (`uses: ./path`) and local
 reusable workflows (`uses: ./.github/workflows/x.yml`), with bounded depth.
+GitHub's same-repository form (`uses: $/path`) is followed the same way.
 Nothing is executed; files are read through the snapshot's bounded reader.
 """
 from dataclasses import dataclass, field
@@ -17,6 +18,9 @@ PRIVILEGED_TRIGGERS = ("pull_request_target", "workflow_run", "issue_comment")
 FIRST_PARTY_OWNERS = {"actions", "github"}
 MAX_DEPTH = 4
 LOCAL_WORKFLOW = re.compile(r"\.github/workflows/[^/]+\.ya?ml")
+# ./ resolves in the runner's workspace and $/ in the workflow's own repository at the running
+# commit; for an analysis of one commit both name a file in this snapshot.
+LOCAL_PREFIXES = ("./", "$/")
 
 # Pull request content addressed by commit: fixed once the event fires.
 IMMUTABLE_REF = re.compile(
@@ -51,7 +55,7 @@ class Fetch:
 
 def third_party_target(value: str) -> str | None:
     """owner/repo[/path] for code from outside the repository, else None."""
-    if not isinstance(value, str) or value.startswith(("./", "docker://")) or "${{" in value:
+    if not isinstance(value, str) or value.startswith((*LOCAL_PREFIXES, "docker://")) or "${{" in value:
         return None
     target = value.split("@", 1)[0].strip().casefold()
     if "/" not in target or target.split("/", 1)[0] in FIRST_PARTY_OWNERS:
@@ -350,7 +354,7 @@ class LocalCode:
             ctx.env.update({k: v for k, v in step_ctx.env.items() if k not in (step.get("env") or {})})
 
     def _uses(self, owner, value, file, line, codes, fetches, depth, seen, job_level, ctx):
-        if not value.startswith("./"):
+        if not value.startswith(LOCAL_PREFIXES):
             target = third_party_target(value)
             if target:
                 codes.append(Code(target, value, file, line))
@@ -358,7 +362,8 @@ class LocalCode:
         if depth >= MAX_DEPTH:
             self.issues.append(f"Local references nest deeper than {MAX_DEPTH} levels at {file}.")
             return
-        relative = safe_relative(value[2:].split("@", 1)[0].strip()) if value.strip() != "./" else ""
+        path = value[2:].split("@", 1)[0].strip()
+        relative = safe_relative(path) if path else ""
         if relative is None:
             self.issues.append(f"Local reference {value} in {file} is outside the repository.")
             return

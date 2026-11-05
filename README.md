@@ -96,8 +96,9 @@ covers inputs, outputs, code scanning and troubleshooting.
 | WF010 | A `pull_request_target`, `workflow_run` or `issue_comment` job newly checks out, fetches or downloads pull request content: the "pwn request" |
 | WF011 | An approval-gated privileged job checks out a pull request reference that can change after approval: time-of-check to time-of-use |
 
-Rules follow steps into local composite actions and local reusable workflows, so a
-change inside `.github/actions/` is caught even when no workflow file changed.
+Rules follow steps into local composite actions and local reusable workflows
+(`./` and `$/` references), so a change inside `.github/actions/` is caught even
+when no workflow file changed.
 
 [docs/RULES.md](https://github.com/adi271213/remit/blob/main/docs/RULES.md) describes the exact behaviour of each rule.
 

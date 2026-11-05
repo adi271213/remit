@@ -188,6 +188,29 @@ class LocalCode(unittest.TestCase):
         report = scan({WF: CALLER, ACTION: UNPARSEABLE}, {WF: CALLER, ACTION: UNPARSEABLE})
         self.assertEqual((report["examinedFiles"], report["analysis"], report["diagnostics"]), ([], "complete", []))
 
+    def test_self_repository_references_are_followed_like_local_ones(self):
+        # GitHub's $/ prefix names an action in the same repository at the running commit.
+        caller = CALLER.replace("./.github/actions/setup", "$/.github/actions/setup")
+        checkout = "    - uses: actions/checkout@v4\n      with:\n        ref: ${{ github.event.pull_request.head.ref }}\n"
+        report = scan({WF: caller, ACTION: COMPOSITE},
+                      {WF: caller, ACTION: COMPOSITE + checkout + "    - uses: someone/tool@v1\n"})
+        self.assertEqual(rules(report, "WF009", "WF010"), [("WF009", ACTION, 9), ("WF010", ACTION, 6)])
+
+    def test_switching_between_local_reference_syntaxes_is_quiet(self):
+        caller = CALLER.replace("./.github/actions/setup", "$/.github/actions/setup")
+        report = scan({WF: CALLER, ACTION: COMPOSITE}, {WF: caller, ACTION: COMPOSITE})
+        self.assertEqual((report["analysis"], report["findings"]), ("complete", []))
+
+    def test_self_repository_reusable_workflow_and_escapes(self):
+        caller = "on: push\npermissions: {}\njobs:\n  call:\n    uses: $/.github/workflows/build.yml\n    secrets: inherit\n"
+        called = "on: workflow_call\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - run: make\n"
+        build = ".github/workflows/build.yml"
+        report = scan({WF: caller, build: called}, {WF: caller, build: called + "      - uses: someone/deploy@v2\n"})
+        self.assertEqual([f["file"] for f in report["findings"] if f["rule"] == "WF009" and f["job"] == "call"], [build])
+        escape = scan({WF: TARGET}, {WF: TARGET + "      - uses: $/../outside\n"})
+        self.assertEqual(escape["analysis"], "incomplete")
+        self.assertIn("outside the repository", escape["diagnostics"][0]["reason"])
+
     def test_symlinked_local_action_is_not_read(self):
         with tempfile.TemporaryDirectory() as temp:
             for side in ("base", "head"):
