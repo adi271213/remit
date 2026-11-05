@@ -119,7 +119,7 @@ random sample of 30 Remit findings, 29 were correct and worth a reviewer's look.
 
 **What it changed.** The first run found 279 Remit findings, 62 of them new jobs
 declaring read-only scopes, plus wrong or repeated findings, and 55 commits
-without a complete analysis. The fixes listed in the changelog's Unreleased
+without a complete analysis. The fixes listed in the changelog's version 1.1
 section brought that to 211 findings and 30 commits. What keeps those 30
 incomplete can't be known from the repository: runners chosen by expressions
 (20 commits), code fetched into the workspace by shell scripts (11), an action
@@ -181,7 +181,7 @@ no secrets for forks, not privileged runs.
 The missed target came from WF002: a new job using the default token in a
 workflow whose jobs already did (20 findings), and default permissions replaced
 by a read-only block (21). Both are hardening or no change; Remit is now quiet
-for them (changelog, Unreleased). That change is motivated by these
+for them (changelog, version 1.1). That change is motivated by these
 repositories, so its effect needs a further held-out set to be measured fairly.
 
 ### 2. Planted changes
@@ -246,7 +246,7 @@ An outside review found six problems:
 - the benchmark scripts read a crashed tool as "no findings";
 - there were no checks for cache use and `persist-credentials`.
 
-All six are fixed (changelog, Unreleased). The benchmark fixes changed published
+All six are fixed (changelog, version 1.1). The benchmark fixes changed published
 numbers, and those are corrected above.
 
 **Does the new version make anything worse?** The previous `main` (`168056f`) and

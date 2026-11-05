@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Version 1.1 — 2026-11-05
 
 - **Project security, continued.** CodeQL now analyses the Python code and this
   repository's workflows; coverage-guided fuzzing with Atheris runs on every pull
