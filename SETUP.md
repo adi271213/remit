@@ -16,6 +16,14 @@ so nothing is installed with pip at runtime.
 1. Copy [`examples/github-action-template.yml`](examples/github-action-template.yml)
    to `.github/workflows/remit.yml`.
 2. Review it and merge it through your normal process.
+3. Make sure a person who knows your CI reviews workflow changes. Remit points at
+   privilege changes but never blocks a merge, so the review is what acts on
+   them. A `CODEOWNERS` file with branch protection's "Require review from Code
+   Owners" does this:
+
+   ```text
+   /.github/  @your-org/ci-owners
+   ```
 
 The template:
 
