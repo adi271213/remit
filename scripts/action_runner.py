@@ -10,6 +10,9 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_ANNOTATIONS = 10  # GitHub displays at most 10 warning annotations per step.
+# Annotation order when findings exceed that limit: pull request content in privileged jobs first,
+# then third-party code, triggers and secrets, then configuration changes.
+RULE_ORDER = ("WF010", "WF011", "WF009", "WF003", "WF004", "WF001", "WF002", "WF005", "WF007", "WF008")
 OUTPUT_KEYS = ("analysis-status", "review-status", "finding-count", "analysis-exit-code",
                "report-path", "summary-path", "base-sha", "head-sha", "sarif-path")
 
@@ -74,19 +77,57 @@ def annotation_path(file):
         return file
 
 
-def annotations(findings):
-    """Workflow commands that place each finding on its line in the PR diff."""
-    lines = []
-    for item in findings[:MAX_ANNOTATIONS]:
+def _grouped(findings):
+    """Findings to annotate together: one WF001 entry per named job and file, as in the job summary."""
+    groups, index = [], {}
+    for item in findings:
+        if item.get("rule") == "WF001" and isinstance(item.get("job"), str):
+            key = (item.get("file"), item["job"])
+            if key in index:
+                groups[index[key]].append(item)
+                continue
+            index[key] = len(groups)
+        groups.append([item])
+    rank = {rule: position for position, rule in enumerate(RULE_ORDER)}
+    return sorted(groups, key=lambda group: rank.get(group[0].get("rule"), len(RULE_ORDER)))
+
+
+def _message(group):
+    first = group[0]
+    if len(group) == 1:
+        return first["message"]
+    scopes = ", ".join(f"{scope}: {level}" for item in group
+                       for scope, level in sorted((item.get("after") or {}).items()))
+    return (f"Job {first['job']} gains {len(group)} higher token permission scopes ({scopes}). "
+            "Runtime access is not verified.")
+
+
+def annotations(findings, analysis="complete"):
+    """Workflow commands that place findings on their lines in the PR diff, most serious first.
+
+    An incomplete or failed analysis is announced first and counts against the same limit, so it
+    can never be the warning that GitHub drops.
+    """
+    lines, budget, shown = [], MAX_ANNOTATIONS, 0
+    if analysis != "complete":
+        lines.append("::warning title=" + _escape(f"Remit analysis {analysis}", prop=True)
+                     + "::Analysis did not complete. Review the job summary; no clean result was established.")
+        budget -= 1
+    for group in _grouped(findings):
+        item = group[0]
+        if budget == 0:
+            break
         if not isinstance(item.get("file"), str):
             continue
         props = "file=" + _escape(annotation_path(item["file"]), prop=True)
         if isinstance(item.get("line"), int):
             props += ",line=" + str(item["line"])
         props += ",title=" + _escape(f"{item['rule']} review suggested", prop=True)
-        lines.append(f"::warning {props}::{_escape(item['message'])}")
-    if len(findings) > MAX_ANNOTATIONS:
-        lines.append(f"::notice title=More findings::{len(findings) - MAX_ANNOTATIONS} more findings are listed "
+        lines.append(f"::warning {props}::{_escape(_message(group))}")
+        budget -= 1
+        shown += len(group)
+    if len(findings) > shown:
+        lines.append(f"::notice title=More findings::{len(findings) - shown} more findings are listed "
                      "in the job summary.")
     return lines
 
@@ -152,12 +193,9 @@ def run():
     print(report_path.read_text(encoding="utf-8"), end="")
     print(f"::{token}::")
     print("::endgroup::")
-    for line in annotations(report["findings"]):
+    for line in annotations(report["findings"], report["analysis"]):
         print(line)
-    if report["analysis"] != "complete":
-        print("::warning title=Remit analysis " + report["analysis"]
-              + "::Analysis did not complete. Review the job summary; no clean result was established.")
-    elif report["findings"]:
+    if report["analysis"] == "complete" and report["findings"]:
         print("::notice title=Remit review suggested::Configured capability changes require human "
               "review; see the job summary.")
     return 0 if mode == "advisory" else code

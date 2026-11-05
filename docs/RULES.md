@@ -154,10 +154,18 @@ request author controls. WF010 is reported when such a job newly:
 - checks out the pull request (`actions/checkout` with a `ref` or `repository`
   taken from `github.event.pull_request.head.*`, `github.head_ref`,
   `github.event.workflow_run.head_*` or `refs/pull/…`);
-- fetches it in a script (`gh pr checkout`, `git fetch … pull/…`, or a git
-  command naming one of those expressions on the same line);
+- fetches it in a script: `gh pr checkout`, `git fetch … pull/…`,
+  `gh pr diff … | git apply` (or `git am`, `patch`), or a `git checkout`,
+  `switch`, `reset`, `fetch`, `clone` or `gh repo clone` command naming one of
+  those expressions on the same line;
+- downloads an archive or patch of it (`curl` or `wget` naming a pull request
+  expression, fetching a tarball, zipball, `/archive/`, `.diff` or `.patch`, or
+  piping into `tar`, `unzip`, `git apply`, `patch` or a shell). A download of pull
+  request metadata, such as its labels, is not content and stays quiet;
 - downloads artifacts from the triggering run (`actions/download-artifact` with a
-  `workflow_run` run ID, or `dawidd6/action-download-artifact`).
+  `workflow_run` run ID, `dawidd6/action-download-artifact`, `gh run download`
+  with a `workflow_run` run ID, or `downloadArtifact` in an `actions/github-script`
+  script that refers to `workflow_run`).
 
 The finding lists the trigger and what the job can use. It is also reported when
 an existing checkout becomes privileged because the trigger changed, and when the
@@ -185,17 +193,29 @@ between jobs, are not traced.
 ## WF011: mutable reference after approval (TOCTOU)
 
 Some privileged workflows wait for a maintainer first: a label
-(`types: [labeled]` or a label check in `if:`), a comment command
-(`issue_comment`, or a comment check in `if:`), or an environment approval. If the
+(`types: [labeled]` or a label check in `if:`), an environment approval, or a
+comment command from a checked commenter. If the
 job then checks out a pull request reference that can move — a branch name
 (`head.ref`, `github.head_ref`, `workflow_run.head_branch`), `refs/pull/N/head`, the
 head repository's default branch, or `gh pr checkout` — the author can push new
 commits after the approval and before the checkout. The code that runs is not the
 code that was reviewed.
 
+Anyone who can see a public repository can comment, so an `issue_comment` job
+counts as gated only when the job, or a job it lists in `needs`, checks who
+commented: an `if:` on `author_association`, `user.login` or `github.actor`, a
+collaborator permission lookup (`getCollaboratorPermissionLevel`,
+`…/collaborators/…/permission`), or a slash-command action with a `permission`
+or `permission-level` input. A check of the comment's text alone, such as
+`contains(github.event.comment.body, '/ok-to-test')`, is not a gate, and a pull
+request checkout there is WF010.
+
 WF011 replaces WF010 for these cases. Checking out the immutable
 `github.event.pull_request.head.sha` (or `workflow_run.head_sha`) is not TOCTOU
 and stays WF010, since the job still runs pull request code with privileges.
+The `issue_comment` event carries no pull request commit, so for comment
+commands the fix is to have the command name the approved commit SHA and check
+out exactly that.
 
 ## Local code
 
@@ -206,10 +226,13 @@ Steps are followed into code the repository itself provides:
 - local reusable workflows, `uses: ./.github/workflows/name.yml`, whose jobs run
   with the calling job's permissions and secrets.
 
+GitHub's same-repository form, `uses: $/path`, is followed the same way and is
+never reported as third-party code.
+
 References are followed up to four levels deep, cycles are cut, and paths that
 leave the repository are refused. A workflow whose own file didn't change is
 still examined when a local file it reaches did. A local reference that can't be
-read makes the analysis `incomplete`. Actions and reusable workflows from other
+read or parsed makes the analysis `incomplete` for every job that reaches it. Actions and reusable workflows from other
 repositories are not fetched.
 
 ## Matrices and expressions

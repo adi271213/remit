@@ -25,7 +25,9 @@ The template:
 3. runs the Action, pinned to a full commit SHA, in `advisory` mode.
 
 Findings appear as annotations in the PR's **Files changed** tab (up to 10 per
-run) and in full in the job summary.
+run) and in full in the job summary. When there are more, an incomplete analysis
+is announced first, pull request content in privileged jobs (WF010, WF011) comes
+next, and a job's token scope increases share one annotation.
 
 Pin the Action to a full commit SHA. Tags are convenient but can be moved.
 
