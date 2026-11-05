@@ -1,0 +1,75 @@
+{
+  "commits": 448,
+  "repositories": 30,
+  "commitsNotRun": 0,
+  "remitAnalysis": {
+    "complete": 437,
+    "error": 2,
+    "incomplete": 9
+  },
+  "toolRunsFailed": {
+    "zizmor": 15,
+    "poutine": 0,
+    "actionlint": 0
+  },
+  "commitsWithNewFindings": {
+    "remit": 57,
+    "zizmor": 79,
+    "poutine": 31,
+    "actionlint": 11
+  },
+  "newFindings": {
+    "remit": 257,
+    "zizmor": 477,
+    "poutine": 82,
+    "actionlint": 52
+  },
+  "remitByRule": {
+    "WF001": {
+      "findings": 59,
+      "remitOnly": 42,
+      "alsoNewInAnotherTool": 17
+    },
+    "WF002": {
+      "findings": 14,
+      "remitOnly": 13,
+      "alsoNewInAnotherTool": 1
+    },
+    "WF003": {
+      "findings": 14,
+      "alsoNewInAnotherTool": 10,
+      "remitOnly": 4
+    },
+    "WF004": {
+      "findings": 40,
+      "remitOnly": 34,
+      "alsoNewInAnotherTool": 6
+    },
+    "WF005": {
+      "findings": 40,
+      "remitOnly": 20,
+      "alsoNewInAnotherTool": 13,
+      "anotherToolFailed": 7
+    },
+    "WF007": {
+      "findings": 24,
+      "remitOnly": 24
+    },
+    "WF009": {
+      "findings": 45,
+      "remitOnly": 23,
+      "alsoNewInAnotherTool": 22
+    },
+    "WF012": {
+      "findings": 21,
+      "remitOnly": 19,
+      "alsoNewInAnotherTool": 2
+    }
+  },
+  "remitOnly": 179,
+  "remitFindingsWhereAnotherToolFailed": 7,
+  "remitSeconds": {
+    "median": 0.17,
+    "max": 1.88
+  }
+}
