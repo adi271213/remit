@@ -56,11 +56,11 @@ the PR's base commit.
    and move `Unreleased` entries in the changelog under the new version.
 2. Run CI, the offline smoke test, the replay and the hosted contract on the
    release candidate.
-3. Tag the release commit and publish a GitHub release. Put links to the CI and
-   contract runs in the release notes. Publishing the release runs
-   [`publish.yml`](.github/workflows/publish.yml), which checks that the tag
-   matches the package version, builds with hash-pinned tools, tests the wheel
-   and uploads to PyPI through trusted publishing.
+3. Merge to `main`, then run [`publish.yml`](.github/workflows/publish.yml)
+   from the Actions tab (Run workflow, branch `main`). It refuses other
+   branches, builds with hash-pinned tools, tests the wheel and uploads to PyPI
+   through trusted publishing. Record the CI and contract runs in the
+   changelog entry.
 4. Update the pinned SHA in `README.md`, `examples/github-action-template.yml`
    and the contract workflow.
 

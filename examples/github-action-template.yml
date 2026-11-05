@@ -40,6 +40,6 @@ jobs:
           fi
       - name: Report privilege changes
         # Pin to a reviewed full commit SHA; tags can move.
-        uses: adi271213/remit@3db5c481c527a7f60bf92c0499083fe15f7829be # v1
+        uses: adi271213/remit@3db5c481c527a7f60bf92c0499083fe15f7829be # version 1
         with:
           mode: advisory
