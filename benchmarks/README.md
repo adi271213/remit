@@ -37,8 +37,8 @@ approximates what code scanning would show as new on the PR.
 | WF003 | 8 | 6 |
 | WF004 | 8 | 0 |
 | WF007 | 1 | 0 |
-| WF009 | 8 | 3 |
-| **Total** | **69** | **26** |
+| WF009 | 11 | 3 |
+| **Total** | **72** | **26** |
 
 Measured with zizmor 1.32.0. Online audits were skipped, and code scanning
 matches alerts by fingerprint rather than count, so treat these numbers as an
