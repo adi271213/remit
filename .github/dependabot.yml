@@ -1,5 +1,10 @@
-# Keeps pinned actions and hash-pinned tool requirements current. Each update is
-# a pull request, so CI, the self-check and review still apply.
+# Keeps the pinned GitHub Actions current. Each update is a pull request, so CI,
+# the self-check and review still apply.
+#
+# The hash-pinned Python requirements are updated by hand: Dependabot bumped the
+# version in requirements-lint.txt but kept the old hash, which pip then rightly
+# refused. To update one, download the wheel, check its SHA-256 against PyPI, and
+# change the version and hash together (see CONTRIBUTING.md).
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -12,15 +17,3 @@ updates:
     ignore:
       # The repository's own Action is pinned to a reviewed commit by hand.
       - dependency-name: adi271213/remit
-  - package-ecosystem: pip
-    directory: /
-    schedule:
-      interval: weekly
-    groups:
-      tools:
-        patterns: ["*"]
-    ignore:
-      # PyYAML is vendored and checked against vendor/pyyaml/manifest.json. Refresh it
-      # with scripts/vendor_pyyaml.py (see vendor/README.md), which also updates
-      # requirements.txt, rather than a version bump here.
-      - dependency-name: pyyaml
