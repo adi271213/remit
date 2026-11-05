@@ -287,3 +287,47 @@ class DeclaringPermissions(unittest.TestCase):
     def test_a_block_with_a_write_scope_is_still_reported(self):
         report = scan({WF: self.INHERITED}, {WF: self.declared("{issues: read, packages: write}")})
         self.assertEqual([(f["rule"], f["after"]) for f in report["findings"]], [("WF002", {"packages": "write"})])
+
+
+class DocumentOnlyCheckouts(unittest.TestCase):
+    """deepseek-harness pattern: a pull_request_target job checks out only the README of the
+    pull request head and runs a trusted external action. Nothing from the pull request runs."""
+    SPARSE = ("      - uses: actions/checkout@v4\n        with:\n"
+              "          ref: ${{ github.event.pull_request.head.sha }}\n"
+              "          sparse-checkout: {files}\n{cone}")
+    CONE_OFF = "          sparse-checkout-cone-mode: false\n"
+
+    def wf010(self, files="README.md", cone=CONE_OFF, after="      - uses: owner/check@v1\n", action=None):
+        workflow = ("on: pull_request_target\npermissions: {contents: read}\njobs:\n  check:\n"
+                    "    runs-on: ubuntu-latest\n    steps:\n" + self.SPARSE.format(files=files, cone=cone) + after)
+        files_ = {WF: workflow, **({ACTION: action} if action else {})}
+        return [f for f in check(files_)["findings"] if f["rule"] in ("WF010", "WF011")]
+
+    def test_documentation_only_checkout_followed_by_actions_is_quiet(self):
+        self.assertEqual(self.wf010(), [])
+        self.assertEqual(self.wf010(files="|\n            README.md\n            docs/guide.md\n"), [])
+
+    def test_cone_mode_includes_every_root_file_so_it_is_reported(self):
+        self.assertEqual(len(self.wf010(cone="")), 1)
+
+    def test_a_later_script_can_restore_the_whole_tree_so_it_is_reported(self):
+        self.assertEqual(len(self.wf010(after="      - run: git sparse-checkout disable && make\n")), 1)
+
+    def test_a_later_local_action_is_reported(self):
+        composite = "runs:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash\n"
+        self.assertEqual(len(self.wf010(after="      - uses: ./.github/actions/setup\n", action=composite)), 1)
+
+    def test_build_files_and_globs_are_not_documentation(self):
+        for files in ("package.json", "requirements.txt", "'*.md'", "README.md\n            Makefile"):
+            with self.subTest(files=files):
+                pattern = files if "\n" not in files else "|\n            " + files
+                self.assertEqual(len(self.wf010(files=pattern)), 1)
+
+    def test_inside_a_composite_action_the_callers_later_steps_are_unknown(self):
+        composite = ("runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@v4\n      with:\n"
+                     "        ref: ${{ github.event.pull_request.head.sha }}\n        sparse-checkout: README.md\n"
+                     "        sparse-checkout-cone-mode: false\n")
+        workflow = ("on: pull_request_target\njobs:\n  check:\n    runs-on: ubuntu-latest\n    steps:\n"
+                    "      - uses: ./.github/actions/setup\n      - run: make\n")
+        found = [f["rule"] for f in check({WF: workflow, ACTION: composite})["findings"]]
+        self.assertIn("WF010", found)
