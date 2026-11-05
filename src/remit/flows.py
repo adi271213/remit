@@ -2,6 +2,7 @@
 
 Steps are followed into local composite actions (`uses: ./path`) and local
 reusable workflows (`uses: ./.github/workflows/x.yml`), with bounded depth.
+GitHub's same-repository form (`uses: $/path`) is followed the same way.
 Nothing is executed; files are read through the snapshot's bounded reader.
 """
 from dataclasses import dataclass, field
@@ -17,6 +18,9 @@ PRIVILEGED_TRIGGERS = ("pull_request_target", "workflow_run", "issue_comment")
 FIRST_PARTY_OWNERS = {"actions", "github"}
 MAX_DEPTH = 4
 LOCAL_WORKFLOW = re.compile(r"\.github/workflows/[^/]+\.ya?ml")
+# ./ resolves in the runner's workspace and $/ in the workflow's own repository at the running
+# commit; for an analysis of one commit both name a file in this snapshot.
+LOCAL_PREFIXES = ("./", "$/")
 
 # Pull request content addressed by commit: fixed once the event fires.
 IMMUTABLE_REF = re.compile(
@@ -26,8 +30,28 @@ IMMUTABLE_REF = re.compile(
 MUTABLE_REF = re.compile(
     r"github\s*\.\s*(?:head_ref|event\s*\.\s*(?:pull_request\s*\.\s*head\s*\.\s*(?:ref|repo)"
     r"|workflow_run\s*\.\s*(?:head_branch|head_repository)))|refs/pull/", re.IGNORECASE)
-SCRIPT_FETCH = re.compile(r"\bgh\s+pr\s+checkout\b|\bgit\s+(?:fetch|pull)\b[^\n]*\bpull/", re.IGNORECASE)
-SCRIPT_CHECKOUT = re.compile(r"\bgit\s+(?:checkout|switch|reset|fetch)\b", re.IGNORECASE)
+SCRIPT_FETCH = re.compile(
+    r"\bgh\s+pr\s+checkout\b|\bgit\s+(?:fetch|pull)\b[^\n]*\bpull/"
+    # The pull request's diff applied to the workspace, as it is when the job runs.
+    r"|\bgh\s+pr\s+diff\b[^\n]*\|\s*(?:git\s+apply|git\s+am|patch)\b", re.IGNORECASE)
+# Commands that put the content a reference names into the workspace. The reference (or a
+# variable carrying it) must be on the same line.
+SCRIPT_CHECKOUT = re.compile(r"\bgit\s+(?:checkout|switch|reset|fetch|clone)\b|\bgh\s+repo\s+clone\b", re.IGNORECASE)
+# Downloads count only when they fetch an archive or patch, or feed one to an unpacker:
+# a curl of the pull request API for its labels or title is metadata, not content.
+DOWNLOAD = re.compile(r"\b(?:curl|wget)\b", re.IGNORECASE)
+ARCHIVE = re.compile(r"tarball|zipball|/archive/|\.(?:tar(?:\.gz)?|tgz|zip|diff|patch)\b"
+                     r"|\|\s*(?:tar|unzip|git\s+apply|git\s+am|patch|sh|bash)\b", re.IGNORECASE)
+# Job conditions and steps that check who wrote a comment command.
+COMMENTER_CHECK = re.compile(r"author_association|\buser\s*\.\s*login\b|\bgithub\s*\.\s*(?:triggering_)?actor\b",
+                             re.IGNORECASE)
+PERMISSION_LOOKUP = re.compile(r"getCollaboratorPermissionLevel|collaborators/[^\s'\"]+/permission|checkCollaborator",
+                               re.IGNORECASE)
+# Inputs of slash-command actions that reject commenters below a permission level.
+PERMISSION_INPUTS = {"permission", "permission-level"}
+# Artifacts uploaded by the run that triggered a workflow_run, downloaded by run ID.
+RUN_DOWNLOAD = re.compile(r"\bgh\s+run\s+download\b", re.IGNORECASE)
+JS_ARTIFACT_DOWNLOAD = re.compile(r"\bdownloadArtifact\s*\(", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -51,7 +75,7 @@ class Fetch:
 
 def third_party_target(value: str) -> str | None:
     """owner/repo[/path] for code from outside the repository, else None."""
-    if not isinstance(value, str) or value.startswith(("./", "docker://")) or "${{" in value:
+    if not isinstance(value, str) or value.startswith((*LOCAL_PREFIXES, "docker://")) or "${{" in value:
         return None
     target = value.split("@", 1)[0].strip().casefold()
     if "/" not in target or target.split("/", 1)[0] in FIRST_PARTY_OWNERS:
@@ -183,15 +207,19 @@ def fetch_of(step: dict, ctx: Context | None = None) -> tuple[str, str, bool] | 
             and any("workflow_run" in text for text in _strings(options))):
         # Compare by action, not version: a ref bump is not a new download.
         return "artifact", step["uses"].split("@", 1)[0], False
+    if uses.startswith("actions/github-script@") and isinstance(options.get("script"), str):
+        if JS_ARTIFACT_DOWNLOAD.search(options["script"]) and "workflow_run" in options["script"]:
+            return "artifact", "github.rest.actions.downloadArtifact", False
     run = step.get("run")
     if isinstance(run, str):
         if SCRIPT_FETCH.search(run):
             line = next(line for line in run.splitlines() if SCRIPT_FETCH.search(line))
             return "script", line.strip(), True
-        # The git command and the pull request reference (or a variable carrying it)
-        # must be on the same line.
+        step_env = " ".join(_strings(step.get("env")))
         for line in run.splitlines():
-            if SCRIPT_CHECKOUT.search(line):
+            if RUN_DOWNLOAD.search(line) and ("workflow_run" in line or "workflow_run" in step_env):
+                return "artifact", " ".join(line.split()), False
+            if SCRIPT_CHECKOUT.search(line) or (DOWNLOAD.search(line) and ARCHIVE.search(line)):
                 taint = taint_of(line, ctx, shell=True)
                 if taint:
                     return "script", _shown(line, taint), taint.mutable
@@ -263,24 +291,29 @@ class LocalCode:
     def _load(self, path: str, kind: str):
         if path not in self.cache:
             text = self.text(path)
-            loaded = None
+            loaded, issue = None, None
             if text is None:
                 # Without a reader (for example the historical replay) local code is not followed.
                 if self.snapshot.read is not None or path.startswith(".github/workflows/"):
-                    self.issues.append(f"Local {kind} {path} could not be read.")
+                    issue = f"Local {kind} {path} could not be read."
             else:
                 try:
                     document, node = self.load_yaml(text)
                     if isinstance(document, dict):
                         loaded = document, node
                     else:
-                        self.issues.append(f"Local {kind} {path} is not a mapping.")
+                        issue = f"Local {kind} {path} is not a mapping."
                 except (ValueError, yaml.YAMLError, RecursionError):
-                    self.issues.append(f"Local {kind} {path} is invalid or exceeds analysis limits.")
-            self.cache[path] = loaded
-        if self.cache[path] is not None:
-            self.touched.add(path)
-        return self.cache[path]
+                    issue = f"Local {kind} {path} is invalid or exceeds analysis limits."
+            self.cache[path] = loaded, issue
+        loaded, issue = self.cache[path]
+        # Report a failure on every lookup, not only the first. The first lookup often comes from
+        # dependencies(), whose issues are discarded, and every job that reaches the file is affected.
+        if issue is not None:
+            self.issues.append(issue)
+        # Unreadable files are dependencies too, so a change to one is still noticed.
+        self.touched.add(path)
+        return loaded
 
     def workflow(self, file: str, document: dict, root=None, inputs=None, depth: int = 0,
                  seen: frozenset = frozenset()) -> dict:
@@ -345,7 +378,7 @@ class LocalCode:
             ctx.env.update({k: v for k, v in step_ctx.env.items() if k not in (step.get("env") or {})})
 
     def _uses(self, owner, value, file, line, codes, fetches, depth, seen, job_level, ctx):
-        if not value.startswith("./"):
+        if not value.startswith(LOCAL_PREFIXES):
             target = third_party_target(value)
             if target:
                 codes.append(Code(target, value, file, line))
@@ -353,7 +386,8 @@ class LocalCode:
         if depth >= MAX_DEPTH:
             self.issues.append(f"Local references nest deeper than {MAX_DEPTH} levels at {file}.")
             return
-        relative = safe_relative(value[2:].split("@", 1)[0].strip()) if value.strip() != "./" else ""
+        path = value[2:].split("@", 1)[0].strip()
+        relative = safe_relative(path) if path else ""
         if relative is None:
             self.issues.append(f"Local reference {value} in {file} is outside the repository.")
             return
@@ -415,14 +449,35 @@ def gate(document: dict, job: dict, triggers: set[str]) -> str | None:
         types = target.get("types") if isinstance(target, dict) else None
         if isinstance(types, list) and "labeled" in types:
             return "a label"
-    if "issue_comment" in triggers:
-        return "a comment command"
-    condition = job.get("if")
-    if isinstance(condition, str):
-        if "label" in condition:
-            return "a label"
-        if "comment" in condition:
-            return "a comment command"
+    condition = job.get("if") if isinstance(job.get("if"), str) else ""
+    if "label" in condition:
+        return "a label"
     if job.get("environment"):
         return "environment approval"
+    # Anyone who can see a public repository can comment, and a check of the comment's text
+    # (contains(github.event.comment.body, '/ok-to-test')) does not limit who. A comment is a
+    # gate only when the job, or a job it needs, checks who wrote it.
+    if "issue_comment" in triggers and any(_checks_commenter(item) for item in [job, *_needed(document, job)]):
+        return "a comment command"
     return None
+
+
+def _checks_commenter(job: dict) -> bool:
+    condition = job.get("if") if isinstance(job.get("if"), str) else ""
+    for step in _job_steps(job):
+        options = step.get("with") if isinstance(step.get("with"), dict) else {}
+        if PERMISSION_INPUTS & set(options) or any(PERMISSION_LOOKUP.search(text) for text in _strings(step)):
+            return True
+    return bool(COMMENTER_CHECK.search(condition))
+
+
+def _needed(document: dict, job: dict) -> list:
+    jobs = document.get("jobs") if isinstance(document.get("jobs"), dict) else {}
+    needs = job.get("needs")
+    names = [needs] if isinstance(needs, str) else needs if isinstance(needs, list) else []
+    return [jobs[name] for name in names if isinstance(name, str) and isinstance(jobs.get(name), dict)]
+
+
+def _job_steps(job: dict) -> list:
+    steps = job.get("steps")
+    return [step for step in steps if isinstance(step, dict)] if isinstance(steps, list) else []

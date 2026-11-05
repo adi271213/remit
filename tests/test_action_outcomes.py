@@ -29,6 +29,24 @@ def outputs(path):
     return result
 
 
+def finding(rule, job, line=None, after=None):
+    return {"rule": rule, "file": ".github/workflows/ci.yml", "job": job, "line": line, "before": None,
+            "after": after, "message": f"{rule} in {job}"}
+
+
+def commands(text):
+    """Workflow commands printed outside the ::stop-commands:: block."""
+    lines, token = [], None
+    for line in text.splitlines():
+        if token:
+            token = None if line == f"::{token}::" else token
+        elif line.startswith("::stop-commands::"):
+            token = line.removeprefix("::stop-commands::")
+        elif line.startswith("::"):
+            lines.append(line)
+    return lines
+
+
 class ActionOutcomes(unittest.TestCase):
     def invoke(self, root, *, mode="advisory", state="complete", findings=False, failure=None):
         env = {**os.environ, "RUNNER_TEMP": str(root), "PRIVILEGE_MODE": mode,
@@ -153,3 +171,58 @@ class Annotations(unittest.TestCase):
         self.assertEqual(len(lines), 11)
         self.assertTrue(lines[0].startswith("::warning file=sub/.github/workflows/ci.yml,title="))
         self.assertIn("2 more findings", lines[-1])
+
+    def test_the_most_serious_findings_are_annotated_first(self):
+        # A write-all change in one job used to fill every annotation slot, so a pull request
+        # checkout in another job never reached the diff.
+        scopes = ("actions", "attestations", "checks", "contents", "deployments", "discussions",
+                  "issues", "packages", "pages", "pull-requests", "security-events", "statuses")
+        grants = [finding("WF001", "build", 6, {scope: "write"}) for scope in scopes]
+        with patch.dict(os.environ, {"PRIVILEGE_REPOSITORY": ".", "GITHUB_WORKSPACE": os.getcwd()}, clear=True):
+            lines = runner.annotations([*grants, finding("WF010", "label", 15)])
+        self.assertEqual(len(lines), 2)
+        self.assertIn("line=15,title=WF010 review suggested", lines[0])
+        self.assertIn("line=6,title=WF001 review suggested::Job build gains 12 higher token permission scopes",
+                      lines[1])
+        self.assertIn("pull-requests: write", lines[1])
+
+    def test_token_rows_are_combined_per_job_only(self):
+        findings = [finding("WF001", "a", 3, {"contents": "write"}), finding("WF001", "b", 9, {"issues": "write"}),
+                    finding("WF001", "a", 4, {"id-token": "write"})]
+        with patch.dict(os.environ, {"PRIVILEGE_REPOSITORY": ".", "GITHUB_WORKSPACE": os.getcwd()}, clear=True):
+            lines = runner.annotations(findings)
+        self.assertEqual([line.split(",title=")[0].rsplit("line=", 1)[1] for line in lines], ["3", "9"])
+        self.assertIn("contents: write, id-token: write", lines[0])
+
+    def test_incomplete_analysis_warning_comes_first_within_the_limit(self):
+        findings = [finding("WF004", f"job{n}", n + 1) for n in range(12)]
+        with patch.dict(os.environ, {"PRIVILEGE_REPOSITORY": ".", "GITHUB_WORKSPACE": os.getcwd()}, clear=True):
+            lines = runner.annotations(findings, "incomplete")
+        warnings = [line for line in lines if line.startswith("::warning")]
+        self.assertTrue(warnings[0].startswith("::warning title=Remit analysis incomplete::"))
+        self.assertEqual(len(warnings), runner.MAX_ANNOTATIONS)
+        self.assertIn("3 more findings", lines[-1])
+
+    def test_the_controller_prints_the_analysis_warning_once_and_first(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+
+            def execute(action_root, folder):
+                report = {"analysis": "incomplete", "review": "suggested", "base": "a" * 40, "head": "b" * 40,
+                          "findings": [finding("WF004", f"job{n}", n + 1) for n in range(12)],
+                          "diagnostics": [{"file": "x", "side": "head", "job": None, "kind": "incomplete",
+                                           "reason": "r"}]}
+                (folder / "report.json").write_text(json.dumps(report))
+                (folder / "summary.md").write_text("## Test summary\n")
+                return 2
+
+            env = {"RUNNER_TEMP": temp, "PRIVILEGE_MODE": "advisory", "GITHUB_OUTPUT": str(root / "out"),
+                   "PRIVILEGE_REPOSITORY": ".", "GITHUB_WORKSPACE": os.getcwd()}
+            stdout = io.StringIO()
+            with patch.dict(os.environ, env, clear=True), patch.object(runner, "execute", side_effect=execute), \
+                    redirect_stdout(stdout):
+                self.assertEqual(runner.run(), 0)
+        warnings = [line for line in commands(stdout.getvalue()) if line.startswith("::warning")]
+        self.assertEqual(sum("Remit analysis incomplete" in line for line in warnings), 1)
+        self.assertIn("Remit analysis incomplete", warnings[0])
+        self.assertLessEqual(len(warnings), runner.MAX_ANNOTATIONS)
