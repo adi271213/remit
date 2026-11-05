@@ -355,6 +355,17 @@ def _scope(doc, job, defaults):
     return defaults
 
 
+def _uses_default(document: dict, defaults) -> bool:
+    """True when some job in the workflow already runs with the inherited default permissions."""
+    for job in (document.get("jobs") or {}).values():
+        try:
+            if isinstance(job, dict) and _scope(document, job, defaults) is None:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 def _pin_advice(triggers) -> str:
     """How to check out the approved commit, for the event the job runs on."""
     if "pull_request_target" in triggers:
@@ -570,8 +581,11 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, repository: str | 
                 report["inheritedComparisons"].append({"file": path, "job": name})
             elif new_value is None:
                 # Explicit (or absent) -> inherited default. The default is not visible,
-                # so report the switch itself unless the old map was already maximal.
-                if any(LEVELS[old_value[scope]] < max(LEVELS[x] for x in SCOPES[scope]) for scope in SCOPES):
+                # so report the switch itself unless the old map was already maximal. A new
+                # job in a workflow whose jobs already used the default changes nothing.
+                if old_job is None and _uses_default(before, defaults):
+                    pass
+                elif any(LEVELS[old_value[scope]] < max(LEVELS[x] for x in SCOPES[scope]) for scope in SCOPES):
                     granted = {scope: level for scope, level in old_value.items() if level != "none"}
                     finding("WF002", path, name, None if old_job is None else (granted or "none"),
                             "repository default",
@@ -581,8 +595,10 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, repository: str | 
             elif old_value is None:
                 # Inherited -> explicit. Only levels above the narrowest possible default
                 # can be increases; usually this is a hardening change and stays quiet.
+                # Read access is reported nowhere else for a declared block either: declaring
+                # read scopes is hardening, so only write scopes can be increases here.
                 above = {scope: level for scope, level in sorted(new_value.items())
-                         if LEVELS[level] > LEVELS[MINIMUM_DEFAULT[scope]]}
+                         if LEVELS[level] > LEVELS[MINIMUM_DEFAULT[scope]] and level == "write"}
                 if MINIMUM_DEFAULT_ASSUMPTION not in report["assumptions"]:
                     report["assumptions"].append(MINIMUM_DEFAULT_ASSUMPTION)
                 if above:
