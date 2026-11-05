@@ -10,6 +10,10 @@
 - **Fixed:** `uses: $/path` (GitHub's same-repository action reference) is
   followed like `./path`. Previously it was treated as third-party code: changes
   inside it went unreported, and switching to it produced a WF009 finding.
+- **Changed:** PR annotations announce an incomplete analysis first, then order
+  findings by rule (WF010, WF011, WF009, WF003, WF004, WF001, WF002, WF005, WF007,
+  WF008), and combine a job's WF001 scopes into one annotation, so the 10-warning
+  limit no longer hides the most serious findings.
 
 ## Version 1 — 2026-11-04
 
