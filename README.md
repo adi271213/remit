@@ -111,7 +111,7 @@ by a state rule: a job gaining `id-token: write`, a new secret reference, a
 changed environment, or a new action receiving write access.
 
 On [74 historical public PRs](https://github.com/adi271213/remit/blob/main/benchmarks/README.md),
-Remit reported 69 findings. For 43 of them (62%), zizmor 1.32 (pedantic,
+Remit reported 72 findings. For 46 of them (64%), zizmor 1.32 (pedantic,
 offline) reported no new finding of a related audit in the same workflow and
 job, including all 8 new secret references. The PRs were selected and labelled
 by this project and the matching is approximate, so read this as an indication,
