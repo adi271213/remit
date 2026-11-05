@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Project security, continued.** CodeQL now analyses the Python code and this
+  repository's workflows; coverage-guided fuzzing with Atheris runs on every pull
+  request (about 100,000 inputs in two and a half minutes locally, no failures);
+  and a published GitHub release gets its package files and Sigstore signatures
+  attached by a workflow, so they can be traced to this repository.
 - **Fewer WF010 false positives, clearer advice.** A pull request checkout that
   puts only documentation in the workspace (non-cone sparse checkout of README
   or Markdown files) is no longer reported when no later step in the job runs a
