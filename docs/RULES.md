@@ -209,7 +209,7 @@ Steps are followed into code the repository itself provides:
 References are followed up to four levels deep, cycles are cut, and paths that
 leave the repository are refused. A workflow whose own file didn't change is
 still examined when a local file it reaches did. A local reference that can't be
-read makes the analysis `incomplete`. Actions and reusable workflows from other
+read or parsed makes the analysis `incomplete` for every job that reaches it. Actions and reusable workflows from other
 repositories are not fetched.
 
 ## Matrices and expressions

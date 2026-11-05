@@ -34,6 +34,10 @@ jobs:
       - uses: ./.github/actions/setup
 """
 
+# A composite action the strict loader refuses (duplicate key). Exceeding the alias, token or
+# depth limits fails the same way.
+UNPARSEABLE = "name: setup\nname: again\n" + COMPOSITE
+
 
 def write(root, files):
     (root / ".github/workflows").mkdir(parents=True, exist_ok=True)
@@ -158,6 +162,31 @@ class LocalCode(unittest.TestCase):
         files = {WF: CALLER.replace("setup", "a"), ".github/actions/a/action.yml": a, ".github/actions/b/action.yml": b}
         report = scan(files, {**files, ".github/actions/b/action.yml": b.replace("someone/x", "someone/y")})
         self.assertEqual([f["after"]["uses"] for f in report["findings"] if f["rule"] == "WF009"], ["someone/y@v1"])
+
+    def test_an_unparseable_local_action_is_reported_when_only_the_action_changed(self):
+        # The failure used to be recorded only on the first load, which happened inside the
+        # dependency check, so a pull request that changed only the action was reported complete.
+        report = scan({WF: CALLER, ACTION: COMPOSITE}, {WF: CALLER, ACTION: UNPARSEABLE})
+        self.assertEqual(report["analysis"], "incomplete")
+        self.assertEqual([(d["file"], d["side"], d["job"], d.get("area")) for d in report["diagnostics"]],
+                         [(WF, "head", "build", "local-code")])
+
+    def test_unparseable_local_action_outcome_does_not_depend_on_workflow_order(self):
+        for unchanged, edited in ((".github/workflows/a.yml", ".github/workflows/z.yml"),
+                                  (".github/workflows/z.yml", ".github/workflows/a.yml")):
+            with self.subTest(edited=edited):
+                report = scan({unchanged: CALLER, edited: CALLER, ACTION: COMPOSITE},
+                              {unchanged: CALLER, edited: CALLER + "# edited\n", ACTION: UNPARSEABLE})
+                self.assertEqual(report["analysis"], "incomplete")
+                self.assertEqual(sorted(d["file"] for d in report["diagnostics"]), sorted([unchanged, edited]))
+
+    def test_a_change_between_two_unparseable_versions_is_still_examined(self):
+        report = scan({WF: CALLER, ACTION: UNPARSEABLE}, {WF: CALLER, ACTION: UNPARSEABLE + "    - run: make\n"})
+        self.assertEqual((report["examinedFiles"], report["analysis"]), ([WF], "incomplete"))
+
+    def test_an_unchanged_unparseable_action_with_an_unchanged_workflow_stays_quiet(self):
+        report = scan({WF: CALLER, ACTION: UNPARSEABLE}, {WF: CALLER, ACTION: UNPARSEABLE})
+        self.assertEqual((report["examinedFiles"], report["analysis"], report["diagnostics"]), ([], "complete", []))
 
     def test_symlinked_local_action_is_not_read(self):
         with tempfile.TemporaryDirectory() as temp:

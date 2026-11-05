@@ -263,24 +263,29 @@ class LocalCode:
     def _load(self, path: str, kind: str):
         if path not in self.cache:
             text = self.text(path)
-            loaded = None
+            loaded, issue = None, None
             if text is None:
                 # Without a reader (for example the historical replay) local code is not followed.
                 if self.snapshot.read is not None or path.startswith(".github/workflows/"):
-                    self.issues.append(f"Local {kind} {path} could not be read.")
+                    issue = f"Local {kind} {path} could not be read."
             else:
                 try:
                     document, node = self.load_yaml(text)
                     if isinstance(document, dict):
                         loaded = document, node
                     else:
-                        self.issues.append(f"Local {kind} {path} is not a mapping.")
+                        issue = f"Local {kind} {path} is not a mapping."
                 except (ValueError, yaml.YAMLError, RecursionError):
-                    self.issues.append(f"Local {kind} {path} is invalid or exceeds analysis limits.")
-            self.cache[path] = loaded
-        if self.cache[path] is not None:
-            self.touched.add(path)
-        return self.cache[path]
+                    issue = f"Local {kind} {path} is invalid or exceeds analysis limits."
+            self.cache[path] = loaded, issue
+        loaded, issue = self.cache[path]
+        # Report a failure on every lookup, not only the first. The first lookup often comes from
+        # dependencies(), whose issues are discarded, and every job that reaches the file is affected.
+        if issue is not None:
+            self.issues.append(issue)
+        # Unreadable files are dependencies too, so a change to one is still noticed.
+        self.touched.add(path)
+        return loaded
 
     def workflow(self, file: str, document: dict, root=None, inputs=None, depth: int = 0,
                  seen: frozenset = frozenset()) -> dict:

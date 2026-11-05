@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Fixed:** a local action or reusable workflow that can't be parsed now makes
+  the analysis `incomplete` for every job that reaches it. Previously, when a
+  pull request changed only that file, the failure could be dropped and the
+  result reported as `complete`, depending on workflow file order. A change
+  between two unparseable versions of a local file is now examined too.
+
 ## Version 1 — 2026-11-04
 
 First public release.
