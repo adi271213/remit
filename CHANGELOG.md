@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Project security.** An OpenSSF Scorecard workflow checks the repository's
+  own practices and publishes a score (README badge), and Dependabot keeps the
+  pinned actions and hash-pinned tools current. The README, setup guide and
+  security policy now say plainly that Remit helps reviewers and never blocks a
+  merge, and recommend a `CODEOWNERS` rule for `.github/`.
+
 From a held-out validation (30 more repositories, planted changes and fuzzing;
 see `benchmarks/README.md`):
 

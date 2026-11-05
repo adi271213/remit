@@ -21,4 +21,6 @@ When installing:
 
 - pin the Action to a reviewed full commit SHA;
 - give the job read-only permissions;
+- require review of changes under `.github/` (for example with `CODEOWNERS`),
+  since Remit reports but never blocks;
 - set `default-permissions` only from the trusted calling workflow.
