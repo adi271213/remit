@@ -711,8 +711,9 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, repository: str | 
                             f"Job {name} runs on {trigger_text} and {'' if _audit else 'now '}brings in pull "
                             "request content "
                             f"({fetch.ref}){via} where it can use {capability_text}. Code from the pull request "
-                            "can act with those privileges; run it in a separate job without secrets or write "
-                            "access.", fetch.line, workflow=path)
+                            "can act with those privileges, and even without them it shares the default branch's "
+                            "Actions cache, which later trusted runs may restore. Run pull request code under the "
+                            "pull_request trigger instead.", fetch.line, workflow=path)
     report["findings"] = _merge_shared(report["findings"])
     if report["inheritedComparisons"]:
         report["assumptions"].append(

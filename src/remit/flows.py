@@ -341,6 +341,35 @@ def fetch_of(step: dict, ctx: Context | None = None) -> tuple[str, str, bool] | 
     return None
 
 
+# Files that are read, not executed or used as build configuration. Not .txt: requirements.txt
+# and CMakeLists.txt are build input.
+DOCUMENT = re.compile(r"(?:[\w.-]+/)*(?:[\w.-]+\.(?:md|markdown|rst|adoc)"
+                      r"|README|LICENSE|COPYING|NOTICE|AUTHORS|CHANGELOG)", re.IGNORECASE)
+
+
+def documents_only(step: dict) -> bool:
+    """True when a checkout puts only documentation files in the workspace.
+
+    That needs a sparse checkout in non-cone mode listing plain file paths: in cone mode,
+    Git always includes every file at the repository root (package.json, Makefile, ...).
+    """
+    options = step.get("with") if isinstance(step.get("with"), dict) else {}
+    patterns = options.get("sparse-checkout")
+    cone = options.get("sparse-checkout-cone-mode")
+    if not isinstance(patterns, str) or not (cone is False or str(cone).strip().lower() == "false"):
+        return False
+    lines = [line.strip().lstrip("/") for line in patterns.splitlines() if line.strip()]
+    return bool(lines) and all(DOCUMENT.fullmatch(line) for line in lines)
+
+
+def runs_workspace_code(step) -> bool:
+    """A later step that can execute what is in the workspace: any script, or a local action."""
+    if not isinstance(step, dict):
+        return True
+    uses = step.get("uses")
+    return "run" in step or (isinstance(uses, str) and uses.startswith(LOCAL_PREFIXES))
+
+
 def _record_writes(step: dict, ctx: Context):
     """Outputs and environment variables a step sets for later steps."""
     step_id = step.get("id") if isinstance(step.get("id"), str) else None
@@ -468,20 +497,26 @@ class LocalCode:
         codes, fetches = [], []
         if isinstance(job.get("uses"), str):
             self._uses(job, job["uses"], file, _key(node, "uses")[0], codes, fetches, depth, seen, True, ctx)
-        self._steps(file, job.get("steps"), _key(node, "steps")[1], codes, fetches, depth, seen, ctx)
+        self._steps(file, job.get("steps"), _key(node, "steps")[1], codes, fetches, depth, seen, ctx,
+                    job_steps=True)
         return codes, fetches
 
-    def _steps(self, file, steps, steps_node, codes, fetches, depth, seen, ctx):
+    def _steps(self, file, steps, steps_node, codes, fetches, depth, seen, ctx, job_steps=False):
         if not isinstance(steps, list):
             return
         nodes = steps_node.value if isinstance(steps_node, yaml.nodes.SequenceNode) else []
         nodes = nodes if len(nodes) == len(steps) else [None] * len(steps)
-        for step, node in zip(steps, nodes):
+        for index, (step, node) in enumerate(zip(steps, nodes)):
             if not isinstance(step, dict):
                 continue
             step_ctx = ctx.copy()
             step_ctx.env.update(_env_taints(step.get("env"), ctx))
             found = fetch_of(step, step_ctx)
+            # Only a job's own steps are all visible: inside a composite action, the calling
+            # job's later steps could still run what was checked out.
+            if found and job_steps and found[0] == "checkout" and documents_only(step) \
+                    and not any(runs_workspace_code(later) for later in steps[index + 1:]):
+                found = None
             if found:
                 line = _key(node, "uses")[0] or _key(node, "run")[0]
                 fetches.append(Fetch(found[0], found[1], found[2], file, line))

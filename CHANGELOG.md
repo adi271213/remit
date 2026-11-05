@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Fewer WF010 false positives, clearer advice.** A pull request checkout that
+  puts only documentation in the workspace (non-cone sparse checkout of README
+  or Markdown files) is no longer reported when no later step in the job runs a
+  script or a local action. In audit runs on 60 repositories this removed two
+  findings, both in one project that uses the pattern on purpose, and nothing
+  else. WF010's message now says that pull request code in these workflows
+  shares the default branch's Actions cache even without secrets.
 - **Project security.** An OpenSSF Scorecard workflow checks the repository's
   own practices and publishes a score (README badge), and Dependabot keeps the
   pinned actions and hash-pinned tools current. The README, setup guide and
