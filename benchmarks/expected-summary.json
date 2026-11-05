@@ -2,13 +2,13 @@
   "cases": 74,
   "allInputsHashVerified": true,
   "legacyFactsMatch": true,
-  "legacyExpectedFacts": 45,
+  "legacyExpectedFacts": 39,
   "analysis": {
     "complete": 74
   },
   "findingsByRule": {
     "WF003": 8,
-    "WF001": 29,
+    "WF001": 23,
     "WF002": 15,
     "WF009": 11,
     "WF004": 8,

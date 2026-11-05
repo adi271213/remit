@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+From running Remit, zizmor, poutine and actionlint on 446 recent workflow
+commits in 30 popular repositories (see `benchmarks/README.md`):
+
+- **Less noise.** A new job's `read` scopes are no longer reported as WF001
+  increases; they are narrower than any default token. This removed 62 of 279
+  findings in that comparison. Six expected WF001 results in the 74-PR replay
+  were of this kind and were removed from its labels. A change from an
+  unresolvable runner to GitHub-hosted labels is no longer reported as WF005.
+- **One finding per shared change.** A change in a shared local action or
+  reusable workflow that reaches several jobs is reported once, with the jobs
+  listed in a new `jobs` field.
+- **Large and deep workflows.** Files up to 1 MiB are analysed (was 256 KiB),
+  and a larger file no longer fails the whole run: unchanged, it is ignored;
+  changed, only that file is `incomplete`. Local references are followed ten
+  levels deep, GitHub's own limit (was four).
+- **Checkouts in the workspace.** `uses: ./path` takes earlier
+  `actions/checkout` steps into account: this repository checked out into a
+  folder is followed, and an action from another checked-out repository is
+  reported as third-party code instead of making the analysis incomplete.
+- **Own repository by name.** With `--repository-name owner/repo` (the Action
+  passes it), `owner/repo/...@branch` is the repository's own code, not WF009.
+  Full-SHA self-references are still reported, since the SHA may be a fork's.
+- **`workflow_run` conditions.** A job whose `if:` (or a needed job's) rules
+  out runs caused by pull requests, such as
+  `github.event.workflow_run.event == 'push'`, no longer gets WF010/WF011.
+
 ## Version 1 — 2026-11-04
 
 First public release.

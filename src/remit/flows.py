@@ -16,11 +16,12 @@ from .sources import Snapshot, safe_relative
 # being caused by people outside the repository.
 PRIVILEGED_TRIGGERS = ("pull_request_target", "workflow_run", "issue_comment")
 FIRST_PARTY_OWNERS = {"actions", "github"}
-MAX_DEPTH = 4
+MAX_DEPTH = 10  # GitHub allows 10 levels of nested reusable workflows and composite actions
 LOCAL_WORKFLOW = re.compile(r"\.github/workflows/[^/]+\.ya?ml")
 # ./ resolves in the runner's workspace and $/ in the workflow's own repository at the running
 # commit; for an analysis of one commit both name a file in this snapshot.
 LOCAL_PREFIXES = ("./", "$/")
+FULL_SHA = re.compile(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}")
 
 # Pull request content addressed by commit: fixed once the event fires.
 IMMUTABLE_REF = re.compile(
@@ -73,14 +74,53 @@ class Fetch:
     line: int | None
 
 
-def third_party_target(value: str) -> str | None:
-    """owner/repo[/path] for code from outside the repository, else None."""
+def third_party_target(value: str, repository: str | None = None) -> str | None:
+    """owner/repo[/path] for code from outside the repository, else None.
+
+    repository (owner/repo) is the repository being analysed, when known: references to
+    it by full name and a branch or tag (owner/repo/.github/workflows/x.yml@main) are its
+    own code.
+    """
     if not isinstance(value, str) or value.startswith((*LOCAL_PREFIXES, "docker://")) or "${{" in value:
         return None
     target = value.split("@", 1)[0].strip().casefold()
     if "/" not in target or target.split("/", 1)[0] in FIRST_PARTY_OWNERS:
         return None
+    own = repository.casefold() if repository else None
+    ref = value.split("@", 1)[1].strip() if "@" in value else ""
+    # A full SHA can name a commit that exists only in a fork (an impostor commit), so
+    # only branch and tag references count as the repository's own code.
+    if own and (target == own or target.startswith(own + "/")) and not FULL_SHA.fullmatch(ref):
+        return None
     return target
+
+
+@dataclass(frozen=True)
+class Mount:
+    """What an actions/checkout step put at a workspace path."""
+    repository: str | None  # owner/repo of another repository; None for this one
+    ref: str
+
+
+def checkout_mount(step: dict, repository: str | None) -> tuple[str, Mount] | None:
+    """(workspace path, Mount) for a checkout with literal inputs, else None."""
+    uses = step.get("uses")
+    if not isinstance(uses, str) or not uses.casefold().startswith("actions/checkout@"):
+        return None
+    options = step.get("with") if isinstance(step.get("with"), dict) else {}
+    values = {key: options.get(key, "") for key in ("repository", "ref", "path")}
+    if not all(isinstance(value, str) for value in values.values()):
+        return None
+    other, path = values["repository"].strip(), values["path"].strip().strip("/")
+    if other == "${{ github.repository }}" or (repository and other.casefold() == repository.casefold()):
+        other = ""
+    # Where the code comes from needs a literal repository and path; the ref is only shown.
+    if "${{" in other or "${{" in path:
+        return None
+    path = safe_relative(path) if path else ""
+    if path is None:
+        return None
+    return path, Mount(other.casefold() or None, values["ref"].strip())
 
 
 def _key(node, name):
@@ -142,9 +182,10 @@ class Context:
     outputs: dict = field(default_factory=dict)  # (step id, name), casefolded -> Taint
     needs: dict = field(default_factory=dict)    # (job, name), casefolded -> Taint
     inputs: dict = field(default_factory=dict)   # name, casefolded -> Taint
+    mounts: dict = field(default_factory=dict)   # workspace path ("" = root) -> Mount
 
     def copy(self):
-        return Context(dict(self.env), dict(self.outputs), dict(self.needs), dict(self.inputs))
+        return Context(dict(self.env), dict(self.outputs), dict(self.needs), dict(self.inputs), dict(self.mounts))
 
     def env_expression(self, name):
         # Context property names are case-insensitive in expressions.
@@ -273,9 +314,10 @@ def _ordered_jobs(jobs: dict) -> list:
 class LocalCode:
     """Follows local actions and reusable workflows within one snapshot."""
 
-    def __init__(self, snapshot: Snapshot, load_yaml):
+    def __init__(self, snapshot: Snapshot, load_yaml, repository: str | None = None):
         self.snapshot = snapshot
         self.load_yaml = load_yaml
+        self.repository = repository
         self.cache = {}
         self.texts = {}
         self.issues = []    # reasons a local reference could not be followed
@@ -372,6 +414,9 @@ class LocalCode:
             if isinstance(step.get("uses"), str):
                 self._uses(step, step["uses"], file, _key(node, "uses")[0], codes, fetches, depth, seen, False,
                            step_ctx)
+            mount = checkout_mount(step, self.repository)
+            if mount:
+                ctx.mounts[mount[0]] = mount[1]
             # Outputs and $GITHUB_ENV writes are visible to later steps.
             _record_writes(step, step_ctx)
             ctx.outputs.update(step_ctx.outputs)
@@ -379,10 +424,25 @@ class LocalCode:
 
     def _uses(self, owner, value, file, line, codes, fetches, depth, seen, job_level, ctx):
         if not value.startswith(LOCAL_PREFIXES):
-            target = third_party_target(value)
+            target = third_party_target(value, self.repository)
             if target:
                 codes.append(Code(target, value, file, line))
             return
+        if value.startswith("./") and not job_level:
+            # ./ is the workspace: an earlier checkout may have put another repository,
+            # or this one in a subdirectory, where the action is read from.
+            path = value[2:].split("@", 1)[0].strip().strip("/")
+            mounted = sorted((p for p in ctx.mounts if not p or path == p or path.startswith(p + "/")),
+                             key=len, reverse=True)
+            if mounted:
+                where, mount = mounted[0], ctx.mounts[mounted[0]]
+                rest = path[len(where):].strip("/")
+                if mount.repository:
+                    target = f"{mount.repository}/{rest}".rstrip("/")
+                    shown = f"{target}@{mount.ref}" if mount.ref else f"{target} (default branch)"
+                    codes.append(Code(target, shown, file, line))
+                    return
+                value = "./" + rest
         if depth >= MAX_DEPTH:
             self.issues.append(f"Local references nest deeper than {MAX_DEPTH} levels at {file}.")
             return

@@ -72,7 +72,7 @@ The template checks out the base commit, fetches the PR head without checking it
 out, and runs the Action pinned to a full commit SHA:
 
 ```yaml
-- uses: adi271213/remit@3db5c481c527a7f60bf92c0499083fe15f7829be # version 1
+- uses: adi271213/remit@1f884d35611d52ad79d8b2217af3b747434a108b # version 1
   with:
     mode: advisory
 ```
@@ -111,11 +111,17 @@ by a state rule: a job gaining `id-token: write`, a new secret reference, a
 changed environment, or a new action receiving write access.
 
 On [74 historical public PRs](https://github.com/adi271213/remit/blob/main/benchmarks/README.md),
-Remit reported 72 findings. For 46 of them (64%), zizmor 1.32 (pedantic,
+Remit reported 66 findings. For 44 of them (67%), zizmor 1.32 (pedantic,
 offline) reported no new finding of a related audit in the same workflow and
 job, including all 8 new secret references. The PRs were selected and labelled
 by this project and the matching is approximate, so read this as an indication,
 not a benchmark. Run zizmor for what is dangerous, and Remit for what got wider.
+
+A [field comparison](https://github.com/adi271213/remit/blob/main/benchmarks/README.md#field-comparison-446-commits-in-30-repositories)
+on 446 recent workflow commits in 30 popular repositories, picked by a rule,
+points the same way: 151 of Remit's 211 findings, including 55 of 57 new secrets
+and every runner and environment change, had no related new finding from zizmor
+or poutine.
 
 ## Results
 
@@ -164,13 +170,16 @@ default instead, pass it in:
 - WF003 looks at trigger names only. Filter changes on existing triggers
   (branches, types, paths) are not analysed.
 - Expressions are not evaluated. Only direct `${{ matrix.<field> }}` references
-  into a static matrix of up to 256 rows are resolved; anything else is reported
-  as unresolved.
+  into a static matrix of up to 256 rows are resolved, and a `workflow_run` job's
+  `if:` is checked for whether it rules out pull request runs; anything else is
+  reported as unresolved.
 - YAML merge keys (`<<`) and recursive aliases are rejected as errors.
 - A renamed file is matched only if its content is identical; an edited rename
   is treated as a new file and can produce findings for unchanged settings.
-- Input limits: 200 workflow files and 4 MiB per commit; per file, 256 KiB and
-  60,000 YAML tokens (a very dense file can reach the token limit first).
+- Input limits: 400 workflow files and 16 MiB per commit; per file, 1 MiB and
+  60,000 YAML tokens (a very dense file can reach the token limit first). A larger
+  workflow file is fingerprinted rather than read: unchanged, it stays quiet;
+  changed, it makes that file's analysis `incomplete`.
 - WF010 and WF011 follow pull request references through environment variables,
   `$GITHUB_ENV`, step and job outputs, and action inputs within the repository.
   Values computed in other ways (a script that builds a ref from pieces, files
@@ -190,7 +199,9 @@ remit scan --dirs path/to/before path/to/after --format sarif --output remit.sar
 
 Output is JSON by default; `--format markdown` and `--format sarif` are also
 available. `--summary FILE` appends the Markdown summary and `--sarif FILE`
-also writes SARIF. The exit code is 0 for complete analysis and 2 otherwise.
+also writes SARIF. `--repository-name owner/repo` names the repository being
+analysed, so references to it by full name aren't reported as third-party code
+(the Action passes this itself). The exit code is 0 for complete analysis and 2 otherwise.
 
 ## Audit an existing repository
 

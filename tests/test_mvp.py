@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from remit.cli import main
 from remit.report import markdown
 from remit.scan import compare, permissions
-from remit.sources import InputError, MAX_FILE, Snapshot, directory, git_snapshot
+from remit.sources import InputError, MAX_FILE, Oversized, Snapshot, directory, git_snapshot
 
 WF = ".github/workflows/ci.yml"
 BASE = "on: push\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo fixture\n"
@@ -389,12 +389,14 @@ class SourcesAndIntegration(unittest.TestCase):
             with self.assertRaises(InputError):
                 directory(root)
 
-    def test_oversized_file_is_rejected(self):
+    def test_oversized_file_is_fingerprinted_not_read(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write(root, {WF: "#" * (MAX_FILE + 1)})
-            with self.assertRaises(InputError):
-                directory(root)
+            first = directory(root).files[WF]
+            write(root, {WF: "#" * (MAX_FILE + 2)})
+            self.assertIsInstance(first, Oversized)
+            self.assertNotEqual(first, directory(root).files[WF])
 
     def test_invalid_utf8_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
