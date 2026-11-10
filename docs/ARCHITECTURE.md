@@ -11,6 +11,9 @@
 | `src/remit/sources.py` | Reads workflow files from a directory or from Git objects, with size limits. |
 | `src/remit/scan.py` | YAML parsing, rename detection, WF001–WF004 and WF009–WF013, and assembly of the report. |
 | `src/remit/flows.py` | What code a job runs: third-party actions and fetches of pull request content, followed into local composite actions and reusable workflows. |
+| `src/remit/shell.py` | A one-pass reader of script lines: words, quotes and command substitutions, the subcommand of a `git` command, and the name of a branch that `git checkout -b` creates. Linear in the line's length. |
+| `src/remit/checkouts.py` | WF013: matches each `actions/checkout` step to the same step on the base side (by id, then by position among unchanged steps) before comparing `persist-credentials`. |
+| `src/remit/conditions.py` | Whether a `workflow_run` job's `if:` rules out runs caused by pull requests: a small parser and three-valued evaluator with size and nesting budgets. |
 | `src/remit/contexts.py` | WF005/WF007/WF008: runner and environment normalisation and matrix expansion. |
 | `src/remit/expressions.py` | Identifier grammar shared by secret and matrix parsing. |
 | `src/remit/yaml_limits.py` | Bounds the composed YAML graph before any Python objects are built. |
