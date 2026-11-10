@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Version 1.2 — 2026-11-10
 
 Fixes for eight scanner defects found in an outside review. Each one was
 reproduced first and has a regression test with nearby controls:
