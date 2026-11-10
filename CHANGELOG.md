@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+Fixes for eight scanner defects found in an outside review. Each one was
+reproduced first and has a regression test with nearby controls:
+
+- **WF010 false positive on new branches.** `git checkout -b "$NEW_BRANCH"` (or
+  `-B`, `git switch -c`/`-C`, `--orphan`) with a branch name built from pull
+  request data was reported, though it only names a branch at the current
+  commit. The name is no longer examined; a pull request start point after it,
+  and later commands on the line, still are.
+- **`$GITHUB_ENV` writes in composite actions now reach the caller.** A pull
+  request value a local composite action writes to `$GITHUB_ENV` was lost when
+  the action returned, so a later checkout using it was missed.
+- **Input defaults apply.** A composite action's or reusable workflow's input
+  `default` is used when the caller omits the input; an explicit input still
+  takes precedence.
+- **Renamed workflows are compared with their old path.** A workflow renamed
+  without changes hid changes to the local actions it uses.
+- **`&&` and `||` return an operand, as in GitHub.** `(... == 'push' || 'x') != true`
+  was read as excluding pull request runs; it is always true.
+- **Local action paths keep `@`.** `./actions/@scope/publish` was read as
+  `./actions/`, so another action could stand in for the one that runs.
+- **WF013 with several checkouts.** One checkout that kept
+  `persist-credentials: false` hid another of the same repository and path
+  that dropped it. Checkouts are now counted.
+- **Git mode reads paths literally.** Git pathspec syntax (`:/`, `:(glob)`,
+  wildcards) in a referenced path could make Remit read a different file than
+  directory mode or GitHub would.
+
 ## Version 1.1 — 2026-11-05
 
 - **Project security, continued.** CodeQL now analyses the Python code and this

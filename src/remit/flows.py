@@ -39,6 +39,21 @@ SCRIPT_FETCH = re.compile(
 # Commands that put the content a reference names into the workspace. The reference (or a
 # variable carrying it) must be on the same line.
 SCRIPT_CHECKOUT = re.compile(r"\bgit\s+(?:checkout|switch|reset|fetch|clone)\b|\bgh\s+repo\s+clone\b", re.IGNORECASE)
+# A shell word: quoted parts, ${{ }} expressions and other characters, without spaces between.
+_WORD = r"(?:\"[^\"]*\"|'[^']*'|\$\{\{.*?\}\}|\$(?!\{\{)|[^\s\"'$;&|])+"
+# The name given to a branch that git checkout/switch creates. It names the new branch; the
+# code checked out comes from the start point after it (or HEAD), which is still examined.
+NEW_BRANCH_NAME = re.compile(r"(\bgit\s+(?:checkout|switch)\b[^;&|\n]*?)\s(?:-[bBcC]|--orphan)(?:\s+|=)" + _WORD)
+
+
+def without_new_branch_names(line: str) -> str:
+    """line with the names of branches created by git checkout -b / switch -c removed."""
+    previous = None
+    while previous != line:
+        previous, line = line, NEW_BRANCH_NAME.sub(r"\1", line, count=1)
+    return line
+
+
 # Downloads count only when they fetch an archive or patch, or feed one to an unpacker:
 # a curl of the pull request API for its labels or title is metadata, not content.
 DOWNLOAD = re.compile(r"\b(?:curl|wget)\b", re.IGNORECASE)
@@ -388,7 +403,7 @@ def fetch_of(step: dict, ctx: Context | None = None) -> tuple[str, str, bool] | 
             if RUN_DOWNLOAD.search(line) and ("workflow_run" in line or "workflow_run" in step_env):
                 return "artifact", " ".join(line.split()), False
             if SCRIPT_CHECKOUT.search(line) or (DOWNLOAD.search(line) and ARCHIVE.search(line)):
-                taint = taint_of(line, ctx, shell=True)
+                taint = taint_of(without_new_branch_names(line), ctx, shell=True)
                 if taint:
                     return "script", _shown(line, taint), taint.mutable
     return None
@@ -429,6 +444,20 @@ def inert(step) -> bool:
     if not isinstance(uses, str) or uses.startswith(LOCAL_PREFIXES) or "@" not in uses:
         return False
     return uses.split("@", 1)[0].strip().lower() in INERT_ACTIONS
+
+
+def _with_defaults(inputs: dict, options: dict, declared, ctx: Context) -> dict:
+    """inputs plus the declared defaults of inputs the caller did not pass."""
+    if not isinstance(declared, dict):
+        return inputs
+    passed = {name.casefold() for name in options if isinstance(name, str)}
+    result = dict(inputs)
+    for name, spec in declared.items():
+        if isinstance(name, str) and name.casefold() not in passed and isinstance(spec, dict):
+            taint = taint_of(spec.get("default"), ctx)
+            if taint is not None:
+                result[name.casefold()] = taint
+    return result
 
 
 def _runner(steps, nodes) -> str | None:
@@ -698,7 +727,7 @@ class LocalCode:
                     codes.append(Control("credentials", f"{file}|{key}|{'persists' if persists else 'off'}",
                                          shown, file, uses_line))
                 self._uses(step, step["uses"], file, uses_line, codes, fetches, depth, seen, False,
-                           step_ctx)
+                           step_ctx, written=ctx.env)
             mount = checkout_mount(step, self.repository)
             if mount:
                 ctx.mounts[mount[0]] = mount[1]
@@ -707,7 +736,8 @@ class LocalCode:
             _record_writes(step, step_ctx, ctx.env)
             ctx.outputs.update(step_ctx.outputs)
 
-    def _uses(self, owner, value, file, line, codes, fetches, depth, seen, job_level, ctx):
+    def _uses(self, owner, value, file, line, codes, fetches, depth, seen, job_level, ctx, written=None):
+        """written: the environment later steps of the caller see, for a composite's $GITHUB_ENV writes."""
         if not value.startswith(LOCAL_PREFIXES):
             target = third_party_target(value, self.repository)
             if target:
@@ -716,7 +746,8 @@ class LocalCode:
         if value.startswith("./") and not job_level:
             # ./ is the workspace: an earlier checkout may have put another repository,
             # or this one in a subdirectory, where the action is read from.
-            path = value[2:].split("@", 1)[0].strip().strip("/")
+            # A local path takes no @ref: GitHub reads all of it, so an @ is part of the path.
+            path = value[2:].strip().strip("/")
             mounted = sorted((p for p in ctx.mounts if not p or path == p or path.startswith(p + "/")),
                              key=len, reverse=True)
             if mounted:
@@ -731,7 +762,7 @@ class LocalCode:
         if depth >= MAX_DEPTH:
             self.issues.append(f"Local references nest deeper than {MAX_DEPTH} levels at {file}.")
             return
-        path = value[2:].split("@", 1)[0].strip()
+        path = value[2:].strip()
         relative = safe_relative(path) if path else ""
         if relative is None:
             self.issues.append(f"Local reference {value} in {file} is outside the repository.")
@@ -746,6 +777,9 @@ class LocalCode:
             if loaded is None:
                 return
             document, node = loaded
+            on = document.get("on") if isinstance(document.get("on"), dict) else {}
+            call = on.get("workflow_call") if isinstance(on.get("workflow_call"), dict) else {}
+            inputs = _with_defaults(inputs, options, call.get("inputs"), ctx)
             for called_codes, called_fetches, _ in self.workflow(
                     relative, document, node, inputs, depth + 1, seen | {relative}).values():
                 codes.extend(called_codes)
@@ -764,10 +798,20 @@ class LocalCode:
             document, node = loaded
             runs = document.get("runs")
             if isinstance(runs, dict) and str(runs.get("using", "")).casefold() == "composite":
+                inputs = _with_defaults(inputs, options, document.get("inputs"), ctx)
                 inner = Context(env=dict(ctx.env), inputs=inputs)
+                before = dict(inner.env)
                 runs_node = _key(node, "runs")[1]
                 self._steps(candidate, runs.get("steps"), _key(runs_node, "steps")[1],
                             codes, fetches, depth + 1, seen | {candidate}, inner)
+                # $GITHUB_ENV writes inside the action reach the caller's later steps; a step's
+                # own env: inside it does not, since it never enters inner.env.
+                if written is not None:
+                    for name in set(before) | set(inner.env):
+                        if name not in inner.env:
+                            written.pop(name, None)
+                        elif inner.env[name] != before.get(name):
+                            written[name] = inner.env[name]
                 # The action's declared outputs become the calling step's outputs.
                 step_id = owner.get("id") if isinstance(owner.get("id"), str) else None
                 declared = document.get("outputs") if isinstance(document.get("outputs"), dict) else {}

@@ -8,6 +8,11 @@ rule nothing out.
 import re
 
 UNKNOWN = object()
+# A value that cannot be known but whose truthiness can, as when one side of && is unknown
+# and the other is false. Such values are never compared.
+FALSY_UNKNOWN = object()
+TRUTHY_UNKNOWN = object()
+_UNKNOWNS = (UNKNOWN, FALSY_UNKNOWN, TRUTHY_UNKNOWN)
 # workflow_run.event values whose triggering run can carry pull request content.
 PULL_REQUEST_EVENTS = ("pull_request", "pull_request_target", "pull_request_review",
                        "pull_request_review_comment", "issue_comment", "merge_group", "workflow_run")
@@ -114,6 +119,10 @@ class _Parser:
 def _truth(value):
     if value is UNKNOWN:
         return UNKNOWN
+    if value is FALSY_UNKNOWN:
+        return False
+    if value is TRUTHY_UNKNOWN:
+        return True
     return bool(value) if not isinstance(value, float) else value != 0
 
 
@@ -140,16 +149,22 @@ def _evaluate(node, facts):
         value = _truth(_evaluate(node[1], facts))
         return UNKNOWN if value is UNKNOWN else not value
     if kind in ("and", "or"):
-        left, right = _truth(_evaluate(node[1], facts)), _truth(_evaluate(node[2], facts))
-        decisive = kind == "or"  # True decides an or; False decides an and.
-        if left is decisive or right is decisive:
-            return decisive
-        if left is UNKNOWN or right is UNKNOWN:
-            return UNKNOWN
-        return not decisive
+        # Like GitHub, && and || return one of their operands, not a boolean:
+        # a || b is a if a is truthy, else b; a && b is a if a is falsy, else b.
+        left, right = _evaluate(node[1], facts), _evaluate(node[2], facts)
+        decisive = kind == "or"  # a truthy left decides an or; a falsy left decides an and.
+        left_truth = _truth(left)
+        if left_truth is decisive:
+            return left
+        if left_truth is not UNKNOWN:
+            return right
+        # The left side is unknown: the result is the left value or the right one.
+        if _truth(right) is decisive:
+            return TRUTHY_UNKNOWN if decisive else FALSY_UNKNOWN
+        return UNKNOWN
     if kind == "cmp":
         operator, left, right = node[1], _evaluate(node[2], facts), _evaluate(node[3], facts)
-        if left is UNKNOWN or right is UNKNOWN or operator not in ("==", "!="):
+        if left in _UNKNOWNS or right in _UNKNOWNS or operator not in ("==", "!="):
             return UNKNOWN
         if _kind(left) != _kind(right):
             # GitHub converts mismatched operands to numbers ('1' == 1, null == '' and

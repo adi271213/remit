@@ -499,12 +499,12 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, repository: str | 
         report["defaultPermissions"] = defaults
     old_only = set(base.files) - set(head.files)
     new_only = set(head.files) - set(base.files)
-    renamed = set()
+    renamed = {}  # new path -> old path, for files renamed without content changes
     for new in sorted(new_only):
         old = next((p for p in sorted(old_only) if base.files[p] == head.files[new]), None)
         if old is not None:
             old_only.remove(old)
-            renamed.add(new)
+            renamed[new] = old
             report["renames"].append({"before": old, "after": new})
     if repository is not None and not REPOSITORY_NAME.fullmatch(repository):
         raise ValueError("Repository name must be owner/repo.")
@@ -546,15 +546,16 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, repository: str | 
         return any(base_local.text(dep) != head_local.text(dep) for dep in paths)
 
     for path in sorted(head.files):
-        if path in renamed:
-            continue
-        if base.files.get(path) == head.files[path] and not local_code_changed(path):
+        # A renamed workflow is compared with its old self: quiet unless the local code it
+        # reaches changed.
+        base_path = renamed.get(path, path)
+        if base.files.get(base_path) == head.files[path] and not local_code_changed(base_path):
             continue
         report["examinedFiles"].append(path)
         documents = {}
         nodes = {"base": None, "head": None}
         lines = None
-        for side, text in (("base", base.files.get(path)), ("head", head.files[path])):
+        for side, text in (("base", base.files.get(base_path)), ("head", head.files[path])):
             if text is None:
                 documents[side] = {"on": [], "jobs": {}}
                 continue
@@ -580,7 +581,7 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, repository: str | 
             side: local.workflow(path, documents[side], nodes[side].root if nodes[side] else None)
             for side, local in (("base", base_local), ("head", head_local))}
         try:
-            old_triggers = _triggers(before) if base.files.get(path) is not None else set()
+            old_triggers = _triggers(before) if base.files.get(base_path) is not None else set()
             new_triggers = _triggers(after)
             for trigger in sorted((new_triggers - old_triggers) & REVIEW_TRIGGERS):
                 finding("WF003", path, None, None, trigger,
@@ -712,19 +713,27 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, repository: str | 
 
             # WF013: a checkout drops persist-credentials: false where the token is worth taking.
             token_matters = new_value is None or any(level == "write" for level in (new_value or {}).values())
-            off = {c.key.rsplit("|", 1)[0] for c in controls["base"]
-                   if c.kind == "credentials" and c.key.endswith("|off")}
-            still_off = {c.key.rsplit("|", 1)[0] for c in controls["head"]
-                         if c.kind == "credentials" and c.key.endswith("|off")}
-            reported = set()
-            for control in controls["head"]:
-                place = control.key.rsplit("|", 1)[0]
-                custom = control.detail.endswith("with a custom token")
-                if control.kind != "credentials" or not control.key.endswith("|persists") \
-                        or place not in off or place in still_off or place in reported \
-                        or not (token_matters or custom):
+            # Checkouts are compared per repository and path by how many keep the safeguard, so
+            # one checkout that still sets it cannot hide another that dropped it.
+            places = {side: {} for side in controls}
+            for side, items in controls.items():
+                for c in items:
+                    if c.kind == "credentials":
+                        place, state = c.key.rsplit("|", 1)
+                        places[side].setdefault(place, []).append((state, c))
+            for place, head_items in places["head"].items():
+                base_items = places["base"].get(place, [])
+                if sum(state == "off" for state, _ in head_items) >= sum(state == "off" for state, _ in base_items):
                     continue
-                reported.add(place)
+                kept = [c for state, c in head_items if state == "persists"]
+                if not kept:
+                    continue  # the checkout was removed, not weakened
+                # The checkout in the position of one that had the safeguard, else the first that lacks it.
+                control = next((c for (old, _), (new, c) in zip(base_items, head_items)
+                                if old == "off" and new == "persists"), kept[0])
+                custom = control.detail.endswith("with a custom token")
+                if not (token_matters or custom):
+                    continue
                 uses = control.detail.removesuffix(" with a custom token")
                 major = uses.rsplit("@v", 1)[1].split(".")[0] if "@v" in uses else ""
                 where = ("in a file outside the workspace, where later steps can still read it"
@@ -763,7 +772,7 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, repository: str | 
             head_triggers = privileged(after, True)
             if not head_triggers:
                 continue
-            base_triggers = privileged(before, base.files.get(path) is not None and old_job is not None)
+            base_triggers = privileged(before, base.files.get(base_path) is not None and old_job is not None)
             head_gate = gate(after, new_job, head_triggers)
             base_gate = gate(before, old_job, base_triggers) if old_job is not None else None
 

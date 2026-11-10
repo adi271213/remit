@@ -194,7 +194,10 @@ def _git(repo: str | Path, *args: str) -> bytes:
            "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
     try:
         result = subprocess.run(
-            ["git", "--no-replace-objects", "-c", "core.fsmonitor=false", "-C", str(repo), *args],
+            # Paths are literal: no pathspec magic (":/", ":(glob)") or wildcards can make a read
+            # return a different file than the one named.
+            ["git", "--no-replace-objects", "--literal-pathspecs", "-c", "core.fsmonitor=false", "-C", str(repo),
+             *args],
             env=env, capture_output=True, timeout=15,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -244,7 +247,10 @@ def git_snapshot(repo: str | Path, ref: str) -> Snapshot:
             listing = _git(repo, "ls-tree", "-z", "--full-tree", commit, "--", relative).split(b"\0")[0]
             if not listing:
                 return None
-            meta = listing.split(b"\t", 1)[0].decode().split()
+            header, _, name = listing.partition(b"\t")
+            meta = header.decode().split()
+            if name.decode("utf-8", "surrogateescape") != relative:
+                return None  # never read a file other than the one asked for
             if meta[0] not in ("100644", "100755") or meta[1] != "blob":
                 return None
             if not budget.allow(int(_git(repo, "cat-file", "-s", meta[2]))):

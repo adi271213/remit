@@ -3,8 +3,10 @@
 Each finding records the `line` in the head file that introduced it, used for
 pull request annotations. Rules compare each changed workflow file between the base and head commits. Jobs
 are matched by job ID; a job that exists only in the head is compared against an
-empty job. Unchanged files are skipped. A file renamed without content changes is
-recorded in `renames` and skipped.
+empty job. Unchanged files are skipped unless local code they use changed. A file
+renamed without content changes is recorded in `renames` and compared with its
+old path, so it is quiet unless the local actions or reusable workflows it uses
+changed.
 
 A finding means a configured capability changed and someone should confirm it
 was intended. It doesn't prove the job can use that capability at runtime, or
@@ -176,7 +178,12 @@ request author controls. WF010 is reported when such a job newly:
 - fetches it in a script: `gh pr checkout`, `git fetch … pull/…`,
   `gh pr diff … | git apply` (or `git am`, `patch`), or a `git checkout`,
   `switch`, `reset`, `fetch`, `clone` or `gh repo clone` command naming one of
-  those expressions on the same line;
+  those expressions on the same line. The name given to a new branch
+  (`git checkout -b NAME`, `-B`, `git switch -c NAME`, `-C`, `--orphan`) doesn't
+  count, since it only names the branch: `git checkout -b "bp-${{ github.head_ref }}"`
+  is quiet, while a pull request start point after it
+  (`git checkout -b pr ${{ github.event.pull_request.head.sha }}`) and later
+  commands on the line are still examined;
 - downloads an archive or patch of it (`curl` or `wget` naming a pull request
   expression, fetching a tarball, zipball, `/archive/`, `.diff` or `.patch`, or
   piping into `tar`, `unzip`, `git apply`, `patch` or a shell). A download of pull
@@ -221,13 +228,17 @@ A pull request reference is followed to where it is used through:
   "$GITHUB_ENV"`) or with `github.sha`, `github.ref`, `github.ref_name`,
   `github.base_ref`, the repository's default branch or the pull request's base
   clears it; a step's own `env:` does so for that step only. A replacement Remit
-  can't resolve (an input, a variable, command output) keeps the earlier value;
+  can't resolve (an input, a variable, command output) keeps the earlier value.
+  `$GITHUB_ENV` writes inside a local composite action reach the caller's later
+  steps, through nested actions too; a step's own `env:` inside the action does
+  not;
 - step outputs written to `$GITHUB_OUTPUT` or with `core.setOutput()` in
   `actions/github-script` (`${{ steps.id.outputs.x }}`);
 - job outputs, for jobs that list the producing job in `needs`
   (`${{ needs.job.outputs.x }}`);
 - inputs passed to local composite actions and reusable workflows
-  (`${{ inputs.x }}`), and a composite action's outputs back to the caller.
+  (`${{ inputs.x }}`), including an input's declared `default` when the caller
+  doesn't pass it, and a composite action's outputs back to the caller.
 
 Pull request data looked up while the job runs (`gh pr view`, `gh api …/pulls`)
 counts as pull request content. For WF011 it counts as mutable, because the
@@ -297,9 +308,11 @@ Steps in local composite actions count, with the finding on the action file.
 `persist-credentials: false` is set. Before v6 it is written to the
 repository's `.git/config`, where a later step can read it and a workspace
 upload can publish it; from v6 it is kept in a file outside the workspace, still
-readable by later steps. WF013 is reported when a checkout in a job (matched by
-its `repository` and `path` inputs) had `persist-credentials: false` and no
-longer does, including when the value becomes an expression. It applies when the
+readable by later steps. WF013 is reported when fewer of a job's checkouts of
+the same `repository` and `path` set `persist-credentials: false` than before
+and one of them no longer does, including when the value becomes an expression.
+Counting means one checkout that keeps the setting can't hide another that
+dropped it. It applies when the
 token is worth taking: the job can write, uses the repository's default
 permissions, or passes a custom `token:`. Checkout v1 did not keep the token, and
 a new checkout without the setting is quiet.
@@ -309,7 +322,10 @@ a new checkout without the setting is quiet.
 Steps are followed into code the repository itself provides:
 
 - local composite actions, `uses: ./path` (reading `path/action.yml` or
-  `action.yaml`; JavaScript and Docker local actions are not followed);
+  `action.yaml`; JavaScript and Docker local actions are not followed). A local
+  path takes no `@ref`, so an `@` is part of the path (`./actions/@scope/publish`).
+  In Git mode, paths are read literally: Git's pathspec syntax (`:/`, `:(glob)`,
+  wildcards) never selects another file;
 - local reusable workflows, `uses: ./.github/workflows/name.yml`, whose jobs run
   with the calling job's permissions and secrets.
 
@@ -343,7 +359,9 @@ quiet for it. Anything that can't be decided, such as a function call or another
 property, counts as possibly true, so the check only ever errs toward reporting.
 So does a comparison between values of different types: GitHub converts those to
 numbers, which makes `1 == '1'`, `null == ''` and `'0x1' == 1` true, and Remit
-doesn't try to reproduce that.
+doesn't try to reproduce that. As in GitHub, `a || b` and `a && b` give one of
+their operands, not `true` or `false`, so `(... == 'push' || 'x') != true` is
+read as always true.
 A `workflow_run` `branches:` filter is not enough on its own: a fork's pull request
 can come from a branch with the same name.
 
