@@ -17,8 +17,10 @@ _UNKNOWNS = (UNKNOWN, FALSY_UNKNOWN, TRUTHY_UNKNOWN)
 PULL_REQUEST_EVENTS = ("pull_request", "pull_request_target", "pull_request_review",
                        "pull_request_review_comment", "issue_comment", "merge_group", "workflow_run")
 WORKFLOW_RUN_EVENT = "github.event.workflow_run.event"
+# An index such as a['b'] is read up to 200 characters: without a bound, every unclosed "["
+# would be scanned to the end of the condition.
 TOKEN = re.compile(r"\s*(?:(?P<str>'(?:[^']|'')*')|(?P<num>-?\d+(?:\.\d+)?)|(?P<op>==|!=|<=|>=|&&|\|\||[!<>(),\[\]])"
-                   r"|(?P<name>[A-Za-z_][A-Za-z0-9_.*-]*(?:\[[^\]]*\])*[A-Za-z0-9_.*-]*))")
+                   r"|(?P<name>[A-Za-z_][A-Za-z0-9_.*-]*(?:\[[^\]]{0,200}\])*[A-Za-z0-9_.*-]*))")
 STATUS_FUNCTIONS = {"always", "failure", "cancelled"}
 # Budgets. A condition beyond them is not evaluated and rules nothing out. Chains of ||, && and
 # comparisons are held as flat lists and folded in a loop, so their length costs no stack;

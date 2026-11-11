@@ -522,6 +522,18 @@ class LongConditions(unittest.TestCase):
             with self.subTest(condition=condition[:40]):
                 self.assertIs(excludes_pull_request_runs(condition), excluded)
 
+    def test_tokenizing_scales_with_length(self):
+        import time
+        for unit in ("a[", "a[b]", "((", "a == ", "contains("):
+            timings = []
+            for count in (2_000, 16_000):
+                start = time.perf_counter()
+                self.assertFalse(excludes_pull_request_runs(unit * count))
+                timings.append(time.perf_counter() - start)
+            with self.subTest(unit=unit):
+                self.assertLess(timings[1] / max(timings[0], 0.005), 24)
+        self.assertTrue(excludes_pull_request_runs(f"github.event.workflow_run['event'] == 'push' && {self.PUSH}"))
+
     def test_the_command_line_reports_instead_of_crashing(self):
         import json
         condition = " || ".join(["true"] * 1200)
