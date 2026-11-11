@@ -295,3 +295,37 @@ benign case scored 104 of 112.
 **Fuzzing** of the new version: Atheris ran 159,000 inputs, and the mutation
 fuzzer 2,000 inputs (two seeds), with no failures.
 
+## Third review: version 1.3 (November 2026)
+
+A follow-up review of 1.2 found five defects (changelog, version 1.3), three of
+them gaps in 1.2's own fixes. Looking for more of the same kind before release
+found four further ways to fool the rewritten branch-name reader, two more
+patterns whose time grew with the square of a line's length, and fetches that
+no version had read (`git -C dir fetch …`, and commands continued with a
+backslash).
+
+**1.2 against 1.3 on all 894 field and held-out commits**, as a pull request
+scan and as an audit:
+
+| | Field (446 commits) | Held-out (448 commits) |
+|---|---|---|
+| Findings that disappeared | 0 | 0 |
+| Crashes, or analysis no longer complete | 0 | 0 |
+| New scan findings | 2 | 0 |
+| New audit findings | 30 (two jobs, on 15 commits each) | 0 |
+| Time per commit, p95 (1.2 / 1.3) | 2.87 s / 3.10 s | 1.54 s / 1.60 s |
+
+Both new findings come from reading `git` options before the subcommand, and
+both are fetches of the pull request that 1.2 would have reported without the
+`-c` option: `git -c … fetch … origin "$HEAD_SHA"` in a `pull_request_target`
+job that then builds (deepseek-ai/deepseek-harness, in a job whose
+`actions/checkout` of the same commit was already reported), and
+`git -c … fetch origin "+refs/pull/N/head"` after an environment approval
+(avelino/awesome-go, WF011).
+
+**Other checks.** Planted changes: all 30 kinds at 100% (25 jobs each, 750
+cases). Replay of 74 PRs and the gha-hazmat audit: unchanged. Atheris: 94,220
+inputs without a failure. Mutation fuzzer: 1,000 inputs (two seeds) without a failure, and at most 15 s of CPU for one call. The test suite now
+checks how the scanner's time grows: 8 times the input must take less than 24
+times as long (linear is 8; the replaced patterns took 56 to 64).
+
