@@ -81,7 +81,7 @@ The template checks out the base commit, fetches the PR head without checking it
 out, and runs the Action pinned to a full commit SHA:
 
 ```yaml
-- uses: adi271213/remit@9dd1827cc0afb8d2e9607f51d4e5c1bee9e6698d # version 1
+- uses: adi271213/remit@9dd1827cc0afb8d2e9607f51d4e5c1bee9e6698d # v1.3
   with:
     mode: advisory
 ```
