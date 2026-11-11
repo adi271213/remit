@@ -1,5 +1,37 @@
 # Changelog
 
+## Version 1.3 — 2026-11-11
+
+A follow-up review of 1.2 found gaps in three of its fixes, a slow pattern and a
+crash. All were reproduced first and have regression tests with controls:
+
+- **Commands inside a new branch's name are examined again.** 1.2 ignored the
+  whole name in `git checkout -b NAME`, including a command substituted into it:
+  `git checkout -b "x-$(git fetch origin $PR_REF && git checkout FETCH_HEAD)"`
+  was not reported. Only the name's inert text is ignored now. The name is also
+  recognised more strictly, so `-bc $REF`, `{a,$REF}` and `-b` used as another
+  option's value no longer hide a reference.
+- **Long script lines are read in one pass.** The 1.2 branch-name filter took
+  20 seconds on a 180 KB line; a fetch pattern present since version 1 had the
+  same quadratic growth on repeated `git fetch`. Both are now linear, and tests
+  check how time grows with input size.
+- **`$GITHUB_ENV` writes in composite actions are tracked as writes.** 1.2
+  compared scoped values before and after the action, so re-exporting a value
+  the action was given in its step's `env:` was missed, and re-exporting a safe
+  override left a stale warning.
+- **WF013 matches each checkout to the same step before comparing.** Counting
+  safe checkouts missed a checkout that lost `persist-credentials: false` when
+  a safe one was added elsewhere, and falsely reported one when a safe checkout
+  was deleted. Steps are matched by `id`, then by their place among unchanged
+  steps; pairs that can't be told apart are reported as ambiguous.
+- **Long conditions no longer crash.** An `if:` with 1,200 `||` terms ended the
+  run with a Python error and no report. Chains are evaluated in a loop, nesting
+  and size have budgets beyond which a condition rules nothing out, and the
+  command line reports an input that nests too deeply instead of crashing.
+- **More fetches are recognised.** `git -C dir fetch …` (options before the
+  subcommand) and a command continued on the next line with a backslash were
+  not read as fetches or checkouts of the reference they name.
+
 ## Version 1.2 — 2026-11-10
 
 Fixes for eight scanner defects found in an outside review. Each one was

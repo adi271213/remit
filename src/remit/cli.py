@@ -76,9 +76,13 @@ def main(argv=None) -> int:
                 base = git_snapshot(args.repo, args.base)
                 head = git_snapshot(args.repo, args.head)
             result = compare(base, head, defaults, repository=args.repository_name)
-    except (InputError, OSError) as exc:
+    except (InputError, OSError, RecursionError) as exc:
         # Do not echo filesystem errors, source text, credentials, or git stderr.
         reason = str(exc) if isinstance(exc, InputError) else "Could not read comparison inputs."
+        if isinstance(exc, RecursionError):
+            # Every known deep structure is bounded where it is read; this keeps anything missed
+            # from ending the run without a report.
+            reason = "An input nests too deeply to analyze."
         result = error_report(reason)
         if args.command == "audit":
             result["mode"] = "audit"

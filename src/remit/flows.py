@@ -7,10 +7,14 @@ Nothing is executed; files are read through the snapshot's bounded reader.
 """
 import bisect
 from dataclasses import dataclass, field
+import hashlib
+import json
 import re
 
 import yaml
 
+from .checkouts import Checkout
+from .shell import git_subcommands, without_new_branch_names
 from .sources import Snapshot, safe_relative
 
 # Triggers whose runs hold the base repository's secrets and write token while
@@ -32,26 +36,37 @@ IMMUTABLE_REF = re.compile(
 MUTABLE_REF = re.compile(
     r"github\s*\.\s*(?:head_ref|event\s*\.\s*(?:pull_request\s*\.\s*head\s*\.\s*(?:ref|repo)"
     r"|workflow_run\s*\.\s*(?:head_branch|head_repository)))|refs/pull/", re.IGNORECASE)
-SCRIPT_FETCH = re.compile(
-    r"\bgh\s+pr\s+checkout\b|\bgit\s+(?:fetch|pull)\b[^\n]*\bpull/"
-    # The pull request's diff applied to the workspace, as it is when the job runs.
-    r"|\bgh\s+pr\s+diff\b[^\n]*\|\s*(?:git\s+apply|git\s+am|patch)\b", re.IGNORECASE)
-# Commands that put the content a reference names into the workspace. The reference (or a
-# variable carrying it) must be on the same line.
-SCRIPT_CHECKOUT = re.compile(r"\bgit\s+(?:checkout|switch|reset|fetch|clone)\b|\bgh\s+repo\s+clone\b", re.IGNORECASE)
-# A shell word: quoted parts, ${{ }} expressions and other characters, without spaces between.
-_WORD = r"(?:\"[^\"]*\"|'[^']*'|\$\{\{.*?\}\}|\$(?!\{\{)|[^\s\"'$;&|])+"
-# The name given to a branch that git checkout/switch creates. It names the new branch; the
-# code checked out comes from the start point after it (or HEAD), which is still examined.
-NEW_BRANCH_NAME = re.compile(r"(\bgit\s+(?:checkout|switch)\b[^;&|\n]*?)\s(?:-[bBcC]|--orphan)(?:\s+|=)" + _WORD)
+# Commands that always bring in the pull request as it is when the job runs. Each part is
+# searched for on its own, one after the other, so a long line is read once: a single pattern
+# with "anything" between the parts rescans the line from every place it could start.
+GH_PR_CHECKOUT = re.compile(r"\bgh\s+pr\s+checkout\b", re.IGNORECASE)
+PULL_REF = re.compile(r"\bpull/", re.IGNORECASE)
+GH_PR_DIFF = re.compile(r"\bgh\s+pr\s+diff\b", re.IGNORECASE)
+# The pull request's diff applied to the workspace.
+APPLIES_PATCH = re.compile(r"\|\s*(?:git\s+apply|git\s+am|patch)\b", re.IGNORECASE)
+GH_REPO_CLONE = re.compile(r"\bgh\s+repo\s+clone\b", re.IGNORECASE)
+# git subcommands that put the content a reference names into the workspace. The reference (or
+# a variable carrying it) must be on the same line.
+CHECKOUT_SUBCOMMANDS = frozenset({"checkout", "switch", "reset", "fetch", "clone"})
 
 
-def without_new_branch_names(line: str) -> str:
-    """line with the names of branches created by git checkout -b / switch -c removed."""
-    previous = None
-    while previous != line:
-        previous, line = line, NEW_BRANCH_NAME.sub(r"\1", line, count=1)
-    return line
+def script_fetch(line: str, subcommands=None) -> bool:
+    """True when a script line fetches the pull request itself: gh pr checkout, git fetch or
+    pull of a pull/ ref, or gh pr diff piped into git apply, git am or patch."""
+    if GH_PR_CHECKOUT.search(line):
+        return True
+    subcommands = git_subcommands(line) if subcommands is None else subcommands
+    fetch = next((end for name, end in subcommands if name in ("fetch", "pull")), None)
+    if fetch is not None and PULL_REF.search(line, fetch):
+        return True
+    diff = GH_PR_DIFF.search(line)
+    return diff is not None and APPLIES_PATCH.search(line, diff.end()) is not None
+
+
+def script_checkout(line: str, subcommands=None) -> bool:
+    """True when a script line runs a git command that checks out or fetches what it names."""
+    subcommands = git_subcommands(line) if subcommands is None else subcommands
+    return any(name in CHECKOUT_SUBCOMMANDS for name, _ in subcommands) or GH_REPO_CLONE.search(line) is not None
 
 
 # Downloads count only when they fetch an archive or patch, or feed one to an unpacker:
@@ -82,9 +97,9 @@ class Code:
 
 @dataclass(frozen=True)
 class Control:
-    """A step whose settings decide what the job trusts or exposes: a cache it restores, or a
-    checkout that leaves the token in place for later steps. Carried in the codes list."""
-    kind: str    # cache | credentials
+    """A step whose settings decide what the job trusts: a cache it restores. Carried in the
+    codes list."""
+    kind: str    # cache
     key: str     # what is compared between base and head
     detail: str  # how it is shown
     file: str
@@ -279,6 +294,10 @@ def _combine(taints):
     return Taint(taints[0].source, any(t.mutable for t in taints))
 
 
+KNOWN = object()
+UNRESOLVED = object()
+
+
 @dataclass
 class Context:
     """What a step can see: environment variables, earlier step outputs, needs outputs and inputs."""
@@ -287,9 +306,36 @@ class Context:
     needs: dict = field(default_factory=dict)    # (job, name), casefolded -> Taint
     inputs: dict = field(default_factory=dict)   # name, casefolded -> Taint
     mounts: dict = field(default_factory=dict)   # workspace path ("" = root) -> Mount
+    # Variables set to a value known not to come from the pull request (a literal or a trusted
+    # expression). A name in neither env nor known has a value this analysis can't see.
+    known: set = field(default_factory=set)
+    # $GITHUB_ENV writes made by the steps run in this context, in order: name -> a Taint, KNOWN
+    # or UNRESOLVED. A composite action's writes are applied to its caller from this record,
+    # not from a comparison of scoped values, which a step's own env: can make look unchanged.
+    exports: dict = field(default_factory=dict)
+    forgot: bool = False  # a step ran that may have set variables without this analysis seeing it
+
+    def forget_known(self):
+        """After a step that can write $GITHUB_ENV unseen (an action that isn't followed, a
+        script whose writes can't all be read), no variable's value is known any more."""
+        self.known.clear()
+        self.forgot = True
 
     def copy(self):
-        return Context(dict(self.env), dict(self.outputs), dict(self.needs), dict(self.inputs), dict(self.mounts))
+        return Context(dict(self.env), dict(self.outputs), dict(self.needs), dict(self.inputs), dict(self.mounts),
+                       set(self.known))
+
+    def set_variable(self, name: str, effect):
+        """Apply one assignment: a Taint, KNOWN (a value that clears an earlier taint) or
+        UNRESOLVED (a value that can't be read, which leaves an earlier taint in place)."""
+        if effect is KNOWN:
+            self.env.pop(name, None)
+            self.known.add(name)
+        elif effect is UNRESOLVED:
+            self.known.discard(name)
+        else:
+            self.env[name] = effect
+            self.known.discard(name)
 
     def env_expression(self, name):
         # Context property names are case-insensitive in expressions.
@@ -324,11 +370,16 @@ TRUSTED_EXPRESSIONS = frozenset({"github.sha", "github.ref", "github.ref_name", 
                                  "github.event.pull_request.base.sha", "github.event.pull_request.base.ref"})
 
 
-def known_value(value, shell: bool = False) -> bool:
+# One $NAME or ${NAME} reference at the start of the text after a dollar sign.
+_SHELL_NAME = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def known_value(value, shell: bool = False, known=frozenset()) -> bool:
     """True when value is a fixed literal, or built only from trusted expressions.
 
     A value that refers to anything else (another variable, an input, a command) is unknown:
-    replacing a pull request reference with it does not show the reference is gone.
+    replacing a pull request reference with it does not show the reference is gone. In a
+    script, $NAME and ${NAME} are fine when NAME itself holds a known value.
     """
     if isinstance(value, (bool, int, float)):
         return True
@@ -339,29 +390,53 @@ def known_value(value, shell: bool = False) -> bool:
     rest = without_expressions(value)
     if "${{" in rest:
         return False
+    if not shell:
+        return True
     # In a script, $X, ${X}, $(...) and `...` are expanded by the shell.
-    return not (shell and ("$" in rest or "`" in rest))
+    if "`" in rest:
+        return False
+    position = rest.find("$")
+    while position >= 0:
+        match = _SHELL_NAME.match(rest, position + 1)
+        if match is None or (match.group(1) or match.group(2)) not in known:
+            return False
+        position = rest.find("$", match.end())
+    return True
 
 
-def _apply_env(target: dict, env, ctx: Context, shell: bool = False):
-    """Set target's variables from env: a pull request value taints the name, a known value
-    replaces (clears) an earlier taint, and an unknown value leaves it as it was."""
+def _effect(value, ctx: Context, shell: bool = False):
+    """What assigning value does to a variable: a Taint, KNOWN or UNRESOLVED."""
+    taint = taint_of(value, ctx, shell=shell)
+    if taint is not None:
+        return taint
+    return KNOWN if known_value(value, shell=shell, known=ctx.known if shell else frozenset()) else UNRESOLVED
+
+
+def _apply_env(target: Context, env, ctx: Context):
+    """Set target's variables from an env: mapping, with values read in ctx: a pull request
+    value taints the name, a known value replaces (clears) an earlier taint, and an unknown
+    value leaves it as it was."""
     if not isinstance(env, dict):
         return
     for name, value in env.items():
-        if not isinstance(name, str):
-            continue
-        taint = taint_of(value, ctx, shell=shell)
-        if taint is not None:
-            target[name] = taint
-        elif known_value(value, shell=shell):
-            target.pop(name, None)
+        if isinstance(name, str):
+            target.set_variable(name, _effect(value, ctx))
 
 
-def _env_taints(env, ctx: Context) -> dict:
-    found = {}
-    _apply_env(found, env, ctx)
-    return found
+def logical_lines(script: str) -> list[str]:
+    """The script's lines, with a line that ends in a backslash joined to the one after it,
+    as the shell reads them: a command continued on the next line is one command."""
+    lines, pending = [], []
+    for line in script.splitlines():
+        backslashes = len(line) - len(line.rstrip("\\"))
+        if backslashes % 2:
+            pending.append(line[:-1])
+        else:
+            lines.append(" ".join([*pending, line]) if pending else line)
+            pending = []
+    if pending:
+        lines.append(" ".join(pending))
+    return lines
 
 
 def _shown(text: str, taint: Taint) -> str:
@@ -395,14 +470,16 @@ def fetch_of(step: dict, ctx: Context | None = None) -> tuple[str, str, bool] | 
             return "artifact", "github.rest.actions.downloadArtifact", False
     run = step.get("run")
     if isinstance(run, str):
-        if SCRIPT_FETCH.search(run):
-            line = next(line for line in run.splitlines() if SCRIPT_FETCH.search(line))
-            return "script", line.strip(), True
+        lines = logical_lines(run)
+        subcommands = [git_subcommands(line) for line in lines]  # read once, used by both checks
+        fetching = next((line for line, found in zip(lines, subcommands) if script_fetch(line, found)), None)
+        if fetching is not None:
+            return "script", " ".join(fetching.split()), True
         step_env = " ".join(_strings(step.get("env")))
-        for line in run.splitlines():
+        for line, found in zip(lines, subcommands):
             if RUN_DOWNLOAD.search(line) and ("workflow_run" in line or "workflow_run" in step_env):
                 return "artifact", " ".join(line.split()), False
-            if SCRIPT_CHECKOUT.search(line) or (DOWNLOAD.search(line) and ARCHIVE.search(line)):
+            if script_checkout(line, found) or (DOWNLOAD.search(line) and ARCHIVE.search(line)):
                 taint = taint_of(without_new_branch_names(line), ctx, shell=True)
                 if taint:
                     return "script", _shown(line, taint), taint.mutable
@@ -545,6 +622,33 @@ def credential_checkout(step: dict) -> tuple[str, bool, int | None] | None:
     return key, persists, major
 
 
+def step_signatures(steps: list) -> tuple:
+    """One short signature per step, equal for the same step on both sides of a change.
+
+    A step with an id is that id. A checkout is its repository and path, so that a change to
+    its other inputs, persist-credentials included, leaves it the same step. Any other step is
+    a digest of its content.
+    """
+    found = []
+    for step in steps:
+        if not isinstance(step, dict):
+            found.append("?")
+            continue
+        step_id = step.get("id")
+        checkout = credential_checkout(step)
+        if isinstance(step_id, str) and step_id.strip():
+            found.append("id:" + step_id.strip())
+        elif checkout:
+            found.append("checkout:" + checkout[0])
+        else:
+            try:
+                text = json.dumps(step, sort_keys=True, default=str)
+            except (TypeError, ValueError, RecursionError):
+                text = "?"
+            found.append(hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()[:16])
+    return tuple(found)
+
+
 
 # Commands that move or show Git data without executing files from the working tree.
 _INERT_COMMANDS = {"git", "gh", "cd", "echo", "printf", "set", "export", "true", "pwd", "ls", "cat"}
@@ -561,20 +665,29 @@ def _runs_more(run) -> bool:
     return False
 
 
-def _record_writes(step: dict, ctx: Context, written: dict):
-    """Outputs a step sets (into ctx) and its $GITHUB_ENV writes (into written, a copy of the
-    environment later steps will see)."""
+def _record_writes(step: dict, ctx: Context, later: Context):
+    """Outputs a step sets (into ctx) and its $GITHUB_ENV writes (into later, the context the
+    following steps see, and into later's record of exports)."""
     step_id = step.get("id") if isinstance(step.get("id"), str) else None
     run = step.get("run")
     if isinstance(run, str):
+        read = 0
         for line in run.splitlines():
             for name, value, target in file_writes(line):
+                read += target == "GITHUB_ENV"
                 if target == "GITHUB_ENV":
-                    _apply_env(written, {name: value}, ctx, shell=True)
+                    effect = _effect(value, ctx, shell=True)
+                    later.set_variable(name, effect)
+                    later.exports.pop(name, None)  # the last write to a name is the one that counts
+                    later.exports[name] = effect
                     continue
                 taint = taint_of(value, ctx, shell=True)
                 if taint is not None and step_id:
                     ctx.outputs[(step_id.casefold(), name.casefold())] = taint
+        if run.count("GITHUB_ENV") > read or _runs_more(run):
+            # A write in a form that isn't read (tee, a heredoc, a loop), or a program that
+            # can write the file itself.
+            later.forget_known()
     uses = step.get("uses") if isinstance(step.get("uses"), str) else ""
     options = step.get("with") if isinstance(step.get("with"), dict) else {}
     if step_id and uses.casefold().startswith("actions/github-script@") and isinstance(options.get("script"), str):
@@ -657,7 +770,7 @@ class LocalCode:
         jobs = document.get("jobs") if isinstance(document.get("jobs"), dict) else {}
         jobs_node = _key(root, "jobs")[1]
         base = Context(inputs=dict(inputs or {}))
-        base.env = _env_taints(document.get("env"), base)
+        _apply_env(base, document.get("env"), base.copy())
         job_outputs, results = {}, {}
         for name in _ordered_jobs(jobs):
             job = jobs[name]
@@ -669,9 +782,9 @@ class LocalCode:
                 if isinstance(needed, str):
                     for output, taint in job_outputs.get(needed.casefold(), {}).items():
                         ctx.needs[(needed.casefold(), output)] = taint
-            _apply_env(ctx.env, job.get("env"), ctx.copy())
+            _apply_env(ctx, job.get("env"), ctx.copy())
             known = len(self.issues)
-            codes, fetches = self.job(file, job, _key(jobs_node, name)[1], depth, seen, ctx)
+            codes, fetches = self.job(file, job, _key(jobs_node, name)[1], depth, seen, ctx, name=name)
             outputs = job.get("outputs") if isinstance(job.get("outputs"), dict) else {}
             job_outputs[name.casefold()] = {output.casefold(): taint for output, value in outputs.items()
                                             if isinstance(output, str) and (taint := taint_of(value, ctx))}
@@ -679,29 +792,32 @@ class LocalCode:
         return results
 
     def job(self, file: str, job: dict, node=None, depth: int = 0, seen: frozenset = frozenset(),
-            ctx: Context | None = None):
+            ctx: Context | None = None, name: str = ""):
         """(codes, fetches) for one job, including code reached through local references.
 
-        ctx is updated with the outputs and environment the job's steps set.
+        ctx is updated with the outputs and environment the job's steps set. name tells this
+        job's steps list from the other jobs' in the same file.
         """
         ctx = ctx if ctx is not None else Context()
         codes, fetches = [], []
         if isinstance(job.get("uses"), str):
             self._uses(job, job["uses"], file, _key(node, "uses")[0], codes, fetches, depth, seen, True, ctx)
         self._steps(file, job.get("steps"), _key(node, "steps")[1], codes, fetches, depth, seen, ctx,
-                    job_steps=True)
+                    job_steps=True, sequence=f"{file}|{name}")
         return codes, fetches
 
-    def _steps(self, file, steps, steps_node, codes, fetches, depth, seen, ctx, job_steps=False):
+    def _steps(self, file, steps, steps_node, codes, fetches, depth, seen, ctx, job_steps=False, sequence=None):
         if not isinstance(steps, list):
             return
+        sequence = f"{file}|" if sequence is None else sequence
+        signatures = None  # computed when the list turns out to hold a checkout
         nodes = steps_node.value if isinstance(steps_node, yaml.nodes.SequenceNode) else []
         nodes = nodes if len(nodes) == len(steps) else [None] * len(steps)
         for index, (step, node) in enumerate(zip(steps, nodes)):
             if not isinstance(step, dict):
                 continue
             step_ctx = ctx.copy()
-            _apply_env(step_ctx.env, step.get("env"), ctx)
+            _apply_env(step_ctx, step.get("env"), ctx)
             found = fetch_of(step, step_ctx)
             # Only a job's own steps are all visible: inside a composite action, the calling
             # job's later steps could still run what was checked out.
@@ -724,20 +840,24 @@ class LocalCode:
                     key, persists, major = checkout
                     token = (step.get("with") or {}).get("token") if isinstance(step.get("with"), dict) else None
                     shown = f"{step['uses'].strip()}" + (" with a custom token" if isinstance(token, str) else "")
-                    codes.append(Control("credentials", f"{file}|{key}|{'persists' if persists else 'off'}",
-                                         shown, file, uses_line))
-                self._uses(step, step["uses"], file, uses_line, codes, fetches, depth, seen, False,
-                           step_ctx, written=ctx.env)
+                    step_id = step.get("id") if isinstance(step.get("id"), str) and step["id"].strip() else None
+                    signatures = step_signatures(steps) if signatures is None else signatures
+                    codes.append(Checkout(sequence, index, key, step_id and step_id.strip(), persists, shown,
+                                          file, uses_line, signatures))
+                followed = self._uses(step, step["uses"], file, uses_line, codes, fetches, depth, seen, False,
+                                      step_ctx, later=ctx)
+                if not followed:
+                    ctx.forget_known()
             mount = checkout_mount(step, self.repository)
             if mount:
                 ctx.mounts[mount[0]] = mount[1]
             # Outputs and $GITHUB_ENV writes are visible to later steps.
             # A step's own env: applies to that step only; its $GITHUB_ENV writes reach later steps.
-            _record_writes(step, step_ctx, ctx.env)
+            _record_writes(step, step_ctx, ctx)
             ctx.outputs.update(step_ctx.outputs)
 
-    def _uses(self, owner, value, file, line, codes, fetches, depth, seen, job_level, ctx, written=None):
-        """written: the environment later steps of the caller see, for a composite's $GITHUB_ENV writes."""
+    def _uses(self, owner, value, file, line, codes, fetches, depth, seen, job_level, ctx, later=None):
+        """later: the context the caller's following steps see, for a composite's $GITHUB_ENV writes."""
         if not value.startswith(LOCAL_PREFIXES):
             target = third_party_target(value, self.repository)
             if target:
@@ -799,19 +919,20 @@ class LocalCode:
             runs = document.get("runs")
             if isinstance(runs, dict) and str(runs.get("using", "")).casefold() == "composite":
                 inputs = _with_defaults(inputs, options, document.get("inputs"), ctx)
-                inner = Context(env=dict(ctx.env), inputs=inputs)
-                before = dict(inner.env)
+                inner = Context(env=dict(ctx.env), inputs=inputs, known=set(ctx.known))
                 runs_node = _key(node, "runs")[1]
                 self._steps(candidate, runs.get("steps"), _key(runs_node, "steps")[1],
                             codes, fetches, depth + 1, seen | {candidate}, inner)
-                # $GITHUB_ENV writes inside the action reach the caller's later steps; a step's
-                # own env: inside it does not, since it never enters inner.env.
-                if written is not None:
-                    for name in set(before) | set(inner.env):
-                        if name not in inner.env:
-                            written.pop(name, None)
-                        elif inner.env[name] != before.get(name):
-                            written[name] = inner.env[name]
+                # $GITHUB_ENV writes inside the action reach the caller's later steps, and count
+                # as the caller's own exports when the caller is itself a composite action. A
+                # step's own env: inside the action is never an export.
+                if later is not None:
+                    for name, effect in inner.exports.items():
+                        later.set_variable(name, effect)
+                        later.exports.pop(name, None)
+                        later.exports[name] = effect
+                    if inner.forgot:
+                        later.forget_known()
                 # The action's declared outputs become the calling step's outputs.
                 step_id = owner.get("id") if isinstance(owner.get("id"), str) else None
                 declared = document.get("outputs") if isinstance(document.get("outputs"), dict) else {}
@@ -819,6 +940,7 @@ class LocalCode:
                     taint = taint_of(spec.get("value") if isinstance(spec, dict) else None, inner)
                     if step_id and isinstance(name, str) and taint:
                         ctx.outputs[(step_id.casefold(), name.casefold())] = taint
+                return True  # followed: its effect on the environment is in inner.exports
             return
         if self.snapshot.read is not None:
             self.issues.append(f"Local action {relative or '.'} has no readable action.yml.")

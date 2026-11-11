@@ -8,6 +8,7 @@ import yaml
 from .sources import MAX_FILE, Oversized, Snapshot
 from .contexts import compare_contexts
 from .conditions import workflow_run_excludes_pull_requests
+from .checkouts import Checkout, weakened
 from .flows import PRIVILEGED_TRIGGERS, Code, Control, LocalCode, gate
 from .expressions import IDENTIFIER
 from .yaml_limits import MAX_ALIASES, validate_graph
@@ -713,24 +714,10 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, repository: str | 
 
             # WF013: a checkout drops persist-credentials: false where the token is worth taking.
             token_matters = new_value is None or any(level == "write" for level in (new_value or {}).values())
-            # Checkouts are compared per repository and path by how many keep the safeguard, so
-            # one checkout that still sets it cannot hide another that dropped it.
-            places = {side: {} for side in controls}
-            for side, items in controls.items():
-                for c in items:
-                    if c.kind == "credentials":
-                        place, state = c.key.rsplit("|", 1)
-                        places[side].setdefault(place, []).append((state, c))
-            for place, head_items in places["head"].items():
-                base_items = places["base"].get(place, [])
-                if sum(state == "off" for state, _ in head_items) >= sum(state == "off" for state, _ in base_items):
-                    continue
-                kept = [c for state, c in head_items if state == "persists"]
-                if not kept:
-                    continue  # the checkout was removed, not weakened
-                # The checkout in the position of one that had the safeguard, else the first that lacks it.
-                control = next((c for (old, _), (new, c) in zip(base_items, head_items)
-                                if old == "off" and new == "persists"), kept[0])
+            # Each checkout is matched to the same step on the base side before its setting is
+            # compared, so an added or deleted checkout cannot stand in for one that changed.
+            checkouts = {side: [c for c in flows[side][0] if isinstance(c, Checkout)] for side in flows}
+            for control, certain in weakened(checkouts["base"], checkouts["head"]):
                 custom = control.detail.endswith("with a custom token")
                 if not (token_matters or custom):
                     continue
@@ -741,10 +728,18 @@ def compare(base: Snapshot, head: Snapshot, defaults=None, *, repository: str | 
                          "in the repository's .git/config, where later steps can read it and a workspace "
                          "upload can publish it")
                 token = "the custom token" if custom else "the job's token"
-                finding("WF013", control.file, name, {"persist-credentials": False}, {"persist-credentials": True},
-                        f"Job {name}'s checkout ({uses}) no longer sets persist-credentials: false, so {token} "
-                        f"is kept {where}. Restore persist-credentials: false unless a later step pushes "
-                        "with it.", control.line, workflow=path)
+                if certain:
+                    after_value = {"persist-credentials": True}
+                    change = f"Job {name}'s checkout ({uses}) no longer sets persist-credentials: false"
+                else:
+                    # The steps could not be told apart: one was moved, rewritten or given a new
+                    # id, or a safe copy was added beside it.
+                    after_value = {"persist-credentials": True, "match": "ambiguous"}
+                    change = (f"Job {name}'s checkouts of this repository and path changed, and this one ({uses}) "
+                              "does not set persist-credentials: false where one did before")
+                finding("WF013", control.file, name, {"persist-credentials": False}, after_value,
+                        f"{change}, so {token} is kept {where}. Restore persist-credentials: false unless a "
+                        "later step pushes with it.", control.line, workflow=path)
 
             # WF009: third-party code newly running where it can use the job's privileges.
             old_targets = {code.target for code in third_party["base"]}

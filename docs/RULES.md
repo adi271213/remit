@@ -178,12 +178,18 @@ request author controls. WF010 is reported when such a job newly:
 - fetches it in a script: `gh pr checkout`, `git fetch … pull/…`,
   `gh pr diff … | git apply` (or `git am`, `patch`), or a `git checkout`,
   `switch`, `reset`, `fetch`, `clone` or `gh repo clone` command naming one of
-  those expressions on the same line. The name given to a new branch
-  (`git checkout -b NAME`, `-B`, `git switch -c NAME`, `-C`, `--orphan`) doesn't
-  count, since it only names the branch: `git checkout -b "bp-${{ github.head_ref }}"`
-  is quiet, while a pull request start point after it
+  those expressions on the same line. Options between `git` and the subcommand
+  are skipped (`git -C dir fetch …`), and a command continued with a backslash
+  at the end of a line is read as one line. The name given to a new branch
+  (`git checkout -b NAME`, `-B`, `git switch -c NAME`, `-C`, `--create`,
+  `--orphan`) doesn't count, since it only names the branch:
+  `git checkout -b "bp-${{ github.head_ref }}"` is quiet. Only the name's inert
+  text is ignored. A command substituted into it (`$(…)` or backquotes) runs, so
+  it is examined, as are a pull request start point after the name
   (`git checkout -b pr ${{ github.event.pull_request.head.sha }}`) and later
-  commands on the line are still examined;
+  commands on the line. The name is recognised only when every option before
+  it is one Remit knows takes no value; otherwise (`--pathspec-from-file -b X`,
+  `-bc X`, a brace expansion such as `{a,X}`) nothing is ignored;
 - downloads an archive or patch of it (`curl` or `wget` naming a pull request
   expression, fetching a tarball, zipball, `/archive/`, `.diff` or `.patch`, or
   piping into `tar`, `unzip`, `git apply`, `patch` or a shell). A download of pull
@@ -231,7 +237,13 @@ A pull request reference is followed to where it is used through:
   can't resolve (an input, a variable, command output) keeps the earlier value.
   `$GITHUB_ENV` writes inside a local composite action reach the caller's later
   steps, through nested actions too; a step's own `env:` inside the action does
-  not;
+  not. The writes themselves are followed, so an action that re-exports a value
+  it was given in its step's `env:` passes it on, whether that value came from
+  the pull request or replaced one. A script variable (`$X`) counts as a fixed
+  value only while `X` is known to hold one: after a step that could have
+  changed it unseen (an action that isn't followed, a script that runs a
+  program or writes `$GITHUB_ENV` in a form Remit doesn't read), it no longer
+  does;
 - step outputs written to `$GITHUB_OUTPUT` or with `core.setOutput()` in
   `actions/github-script` (`${{ steps.id.outputs.x }}`);
 - job outputs, for jobs that list the producing job in `needs`
@@ -308,11 +320,17 @@ Steps in local composite actions count, with the finding on the action file.
 `persist-credentials: false` is set. Before v6 it is written to the
 repository's `.git/config`, where a later step can read it and a workspace
 upload can publish it; from v6 it is kept in a file outside the workspace, still
-readable by later steps. WF013 is reported when fewer of a job's checkouts of
-the same `repository` and `path` set `persist-credentials: false` than before
-and one of them no longer does, including when the value becomes an expression.
-Counting means one checkout that keeps the setting can't hide another that
-dropped it. It applies when the
+readable by later steps. WF013 is reported when a checkout had
+`persist-credentials: false` and no longer does, including when the value
+becomes an expression. Each checkout is first matched to the same step on the
+base side: by its `id` if it has one, otherwise by its place among the unchanged
+steps around it and its `repository` and `path`. So a checkout that is added or
+deleted is not mistaken for one that changed, and a safe checkout added
+elsewhere can't hide one that lost the setting. When the steps can't be told
+apart (a safe checkout disappeared and an unsafe one of the same repository and
+path appeared after a move or rewrite, or a safe copy was added directly beside
+the changed one), the finding is still reported, worded as a change to the job's
+checkouts, with `"match": "ambiguous"`. It applies when the
 token is worth taking: the job can write, uses the repository's default
 permissions, or passes a custom `token:`. Checkout v1 did not keep the token, and
 a new checkout without the setting is quiet.
@@ -361,7 +379,9 @@ So does a comparison between values of different types: GitHub converts those to
 numbers, which makes `1 == '1'`, `null == ''` and `'0x1' == 1` true, and Remit
 doesn't try to reproduce that. As in GitHub, `a || b` and `a && b` give one of
 their operands, not `true` or `false`, so `(... == 'push' || 'x') != true` is
-read as always true.
+read as always true. Chains of `||`, `&&` and comparisons can be any length. A
+condition with more than 20,000 tokens, or parentheses, `!` and function
+arguments nested more than 50 deep, is not evaluated and rules nothing out.
 A `workflow_run` `branches:` filter is not enough on its own: a fork's pull request
 can come from a branch with the same name.
 
