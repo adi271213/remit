@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Version 1.3 — 2026-11-11
 
 A follow-up review of 1.2 found gaps in three of its fixes, a slow pattern and a
 crash. All were reproduced first and have regression tests with controls:

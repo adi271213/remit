@@ -51,7 +51,7 @@ class OfflineRuntime(unittest.TestCase):
         version = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(version)
         self.assertEqual(project['project']['version'], version.__version__)
-        self.assertEqual(version.__version__, '1.2')
+        self.assertEqual(version.__version__, '1.3')
 
     def test_remit_is_the_only_command(self):
         scripts = tomllib.loads((ROOT / 'pyproject.toml').read_text())['project']['scripts']
